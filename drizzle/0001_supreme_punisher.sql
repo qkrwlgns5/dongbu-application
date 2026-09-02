@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `tournament_id` text REFERENCES tournaments(id);

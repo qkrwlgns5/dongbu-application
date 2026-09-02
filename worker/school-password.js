@@ -1,0 +1,14 @@
+/**
+ * Converts the exact English-keyboard equivalents of the supported Korean
+ * institution-code prefixes. All other input is returned unchanged.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeSchoolPasswordInput(value) {
+  const password = String(value ?? "").trim().normalize("NFC");
+  const englishKeyboardCode = /^(ehdek|ehdej)(\d{2})$/iu.exec(password);
+  if (!englishKeyboardCode) return password;
+  const prefix = englishKeyboardCode[1].toLowerCase() === "ehdek" ? "동다" : "동더";
+  return `${prefix}${englishKeyboardCode[2]}`;
+}

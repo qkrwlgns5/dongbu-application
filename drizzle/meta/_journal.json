@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787532394343,
+      "tag": "0000_swift_marvex",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787532556983,
+      "tag": "0001_supreme_punisher",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787540512484,
+      "tag": "0003_admin_credentials",
+      "breakpoints": true
+    }
+  ]
+}

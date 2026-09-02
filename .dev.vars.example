@@ -1,0 +1,3 @@
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-a-long-random-password
+SCHOOL_PASSWORD_PEPPER=replace-with-a-long-random-secret

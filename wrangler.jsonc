@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "dongbu-application",
+  "compatibility_date": "2026-05-22",
+  "main": "./worker/index.ts",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dongbu-application-db",
+      "database_id": "df789ba6-b576-4357-9f2b-ea5a104dba67",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
