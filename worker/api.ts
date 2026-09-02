@@ -1,4 +1,5 @@
 import { normalizeSchoolPasswordInput } from "./school-password.js";
+import { validateTeamLimitConfiguration, validateTeamSelection } from "./team-limits.js";
 
 export interface Env {
   DB: D1Database;
@@ -43,6 +44,7 @@ interface SportRow {
   displayOrder: number;
   teamCountEnabled: number;
   maxTeamsPerSchool: number;
+  maxTeamsPerDivision: number;
   active: number;
 }
 
@@ -243,7 +245,8 @@ async function sportsForTournament(db: D1Database, tournamentId: string, activeO
   const sportsResult = await db.prepare(
     `SELECT id, name, display_order AS displayOrder,
        team_count_enabled AS teamCountEnabled,
-       max_teams_per_school AS maxTeamsPerSchool, active
+       max_teams_per_school AS maxTeamsPerSchool,
+       max_teams_per_division AS maxTeamsPerDivision, active
      FROM sports WHERE tournament_id = ? ${activeOnly ? "AND active = 1" : ""}
      ORDER BY display_order, name`,
   ).bind(tournamentId).all<SportRow>();
@@ -261,6 +264,7 @@ async function sportsForTournament(db: D1Database, tournamentId: string, activeO
     displayOrder: Number(sport.displayOrder),
     teamCountEnabled: Boolean(sport.teamCountEnabled),
     maxTeamsPerSchool: Number(sport.maxTeamsPerSchool),
+    maxTeamsPerDivision: Number(sport.maxTeamsPerDivision),
     active: Boolean(sport.active),
     divisions: divisionsResult.results
       .filter((division) => division.sportId === sport.id)
@@ -485,17 +489,19 @@ async function saveSurvey(request: Request, env: Env): Promise<Response> {
   if (!noParticipation && !selections.length) throw apiError("참가 종목을 선택하거나 '참가 신청 없음'을 선택해 주세요.");
 
   const validRows = await env.DB.prepare(
-    `SELECT d.id AS divisionId, s.id AS sportId, s.name AS sportName,
-       s.team_count_enabled AS teamCountEnabled,
-       s.max_teams_per_school AS maxTeamsPerSchool
+    `SELECT d.id AS divisionId, d.name AS divisionName,
+       s.id AS sportId, s.name AS sportName,
+       s.max_teams_per_school AS maxTeamsPerSchool,
+       s.max_teams_per_division AS maxTeamsPerDivision
      FROM divisions d JOIN sports s ON s.id = d.sport_id
      WHERE s.tournament_id = ? AND s.active = 1 AND d.active = 1`,
   ).bind(current.id).all<{
     divisionId: string;
+    divisionName: string;
     sportId: string;
     sportName: string;
-    teamCountEnabled: number;
     maxTeamsPerSchool: number;
+    maxTeamsPerDivision: number;
   }>();
   const allowed = new Map(validRows.results.map((row) => [row.divisionId, row]));
   const normalized: Array<{ divisionId: string; teamCount: number; sportId: string }> = [];
@@ -506,15 +512,17 @@ async function saveSurvey(request: Request, env: Env): Promise<Response> {
     const rule = allowed.get(divisionId);
     if (!rule || seen.has(divisionId)) throw apiError("종목·종별 선택을 다시 확인해 주세요.");
     seen.add(divisionId);
-    const requestedCount = Number(item.teamCount ?? 1);
-    const teamCount = rule.teamCountEnabled ? requestedCount : 1;
-    if (!Number.isInteger(teamCount) || teamCount < 1) throw apiError("참가팀 수를 확인해 주세요.");
-    const total = (totals.get(rule.sportId) ?? 0) + teamCount;
-    if (total > Number(rule.maxTeamsPerSchool)) {
-      throw apiError(`${rule.sportName}는 학교당 최대 ${rule.maxTeamsPerSchool}팀까지 신청할 수 있습니다.`);
-    }
-    totals.set(rule.sportId, total);
-    normalized.push({ divisionId, teamCount, sportId: rule.sportId });
+    const validated = validateTeamSelection({
+      sportName: rule.sportName,
+      divisionName: rule.divisionName,
+      requestedCount: item.teamCount ?? 1,
+      currentSportTotal: totals.get(rule.sportId) ?? 0,
+      maxTeamsPerSchool: Number(rule.maxTeamsPerSchool),
+      maxTeamsPerDivision: Number(rule.maxTeamsPerDivision),
+    });
+    if (validated.error) throw apiError(validated.error.message, 400, validated.error.code);
+    totals.set(rule.sportId, validated.value.sportTotal);
+    normalized.push({ divisionId, teamCount: validated.value.teamCount, sportId: rule.sportId });
   }
 
   const existing = await env.DB.prepare(
@@ -539,7 +547,21 @@ async function saveSurvey(request: Request, env: Env): Promise<Response> {
       "INSERT INTO response_items (tournament_id, school_id, division_id, team_count) VALUES (?, ?, ?, ?)",
     ).bind(current.id, session.schoolId, item.divisionId, item.teamCount)),
   ];
-  await env.DB.batch(statements);
+  try {
+    await env.DB.batch(statements);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/DIVISION_TEAM_LIMIT_EXCEEDED/iu.test(message)) {
+      throw apiError("저장 직전에 한 종별 최대 팀 수가 변경되었습니다. 최신 화면에서 팀 수를 다시 확인해 주세요.", 409, "TEAM_LIMIT_CHANGED");
+    }
+    if (/SCHOOL_TEAM_LIMIT_EXCEEDED/iu.test(message)) {
+      throw apiError("저장 직전에 학교 전체 최대 팀 수가 변경되었습니다. 최신 화면에서 팀 수를 다시 확인해 주세요.", 409, "TEAM_LIMIT_CHANGED");
+    }
+    if (/INVALID_TEAM_COUNT|INVALID_DIVISION/iu.test(message)) {
+      throw apiError("저장 직전에 종목 설정이 변경되었습니다. 최신 화면에서 다시 신청해 주세요.", 409, "SPORT_CONFIGURATION_CHANGED");
+    }
+    throw error;
+  }
   const saved = await getSurvey(env.DB, current.id, session.schoolId);
   return json({ ok: true, survey: saved });
 }
@@ -824,17 +846,26 @@ function validateEventPayload(body: { academicYear?: number; name?: string; surv
 
 async function createDefaultSports(db: D1Database, tournamentId: string): Promise<void> {
   const definitions = [
-    { name: "배구", teamCountEnabled: 1, max: 2 },
-    { name: "3x3 농구", teamCountEnabled: 0, max: 2 },
-    { name: "피구", teamCountEnabled: 0, max: 2 },
+    { name: "배구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 2 },
+    { name: "3x3 농구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 1 },
+    { name: "피구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 1 },
   ];
   const statements: D1PreparedStatement[] = [];
   definitions.forEach((definition, index) => {
     const sportId = crypto.randomUUID();
     statements.push(db.prepare(
-      `INSERT INTO sports (id, tournament_id, name, display_order, team_count_enabled, max_teams_per_school)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).bind(sportId, tournamentId, definition.name, index + 1, definition.teamCountEnabled, definition.max));
+      `INSERT INTO sports
+         (id, tournament_id, name, display_order, team_count_enabled, max_teams_per_school, max_teams_per_division)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sportId,
+      tournamentId,
+      definition.name,
+      index + 1,
+      definition.maxTeamsPerDivision >= 2 ? 1 : 0,
+      definition.maxTeamsPerSchool,
+      definition.maxTeamsPerDivision,
+    ));
     ["남중부", "여중부"].forEach((name, divisionIndex) => {
       statements.push(db.prepare(
         "INSERT INTO divisions (id, sport_id, name, display_order) VALUES (?, ?, ?, ?)",
@@ -891,32 +922,49 @@ async function addSport(request: Request, env: Env): Promise<Response> {
     eventId?: string;
     name?: string;
     divisions?: string[];
-    teamCountEnabled?: boolean;
     maxTeamsPerSchool?: number;
+    maxTeamsPerDivision?: number;
   }>(request);
   const eventId = cleanText(body.eventId, "대회", 80);
   if (!await tournamentById(env.DB, eventId)) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
   const name = cleanText(body.name, "종목명", 40);
   const divisionNames = [...new Set((Array.isArray(body.divisions) ? body.divisions : []).map((value) => cleanText(value, "종별명", 30)))];
   if (!divisionNames.length || divisionNames.length > 8) throw apiError("종별을 1개 이상 8개 이하로 입력해 주세요.");
-  const maxTeamsPerSchool = Number(body.maxTeamsPerSchool ?? 2);
-  if (!Number.isInteger(maxTeamsPerSchool) || maxTeamsPerSchool < 1 || maxTeamsPerSchool > 20) {
-    throw apiError("학교당 최대 팀 수는 1~20 사이로 입력해 주세요.");
-  }
+  const limitConfiguration = validateTeamLimitConfiguration(
+    body.maxTeamsPerSchool ?? 2,
+    body.maxTeamsPerDivision ?? 1,
+  );
+  if (limitConfiguration.error) throw apiError(limitConfiguration.error.message, 400, limitConfiguration.error.code);
+  const { maxTeamsPerSchool, maxTeamsPerDivision, teamCountEnabled } = limitConfiguration.value;
   const maxOrder = await env.DB.prepare(
     "SELECT COALESCE(MAX(display_order), 0) AS value FROM sports WHERE tournament_id = ?",
   ).bind(eventId).first<{ value: number }>();
   const sportId = crypto.randomUUID();
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO sports (id, tournament_id, name, display_order, team_count_enabled, max_teams_per_school)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).bind(sportId, eventId, name, Number(maxOrder?.value ?? 0) + 1, body.teamCountEnabled ? 1 : 0, maxTeamsPerSchool),
+      `INSERT INTO sports
+         (id, tournament_id, name, display_order, team_count_enabled, max_teams_per_school, max_teams_per_division)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sportId,
+      eventId,
+      name,
+      Number(maxOrder?.value ?? 0) + 1,
+      teamCountEnabled ? 1 : 0,
+      maxTeamsPerSchool,
+      maxTeamsPerDivision,
+    ),
     ...divisionNames.map((divisionName, index) => env.DB.prepare(
       "INSERT INTO divisions (id, sport_id, name, display_order) VALUES (?, ?, ?, ?)",
     ).bind(crypto.randomUUID(), sportId, divisionName, index + 1)),
   ]);
-  await audit(env.DB, "CREATE", "sport", sportId, { eventId, name, divisionNames, maxTeamsPerSchool });
+  await audit(env.DB, "CREATE", "sport", sportId, {
+    eventId,
+    name,
+    divisionNames,
+    maxTeamsPerSchool,
+    maxTeamsPerDivision,
+  });
   return json({ ok: true, id: sportId }, 201);
 }
 
@@ -954,7 +1002,9 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
   await requireSession(request, env.DB, "admin");
   const sport = await env.DB.prepare(
     `SELECT id, tournament_id AS tournamentId, name, display_order AS displayOrder,
-       team_count_enabled AS teamCountEnabled, max_teams_per_school AS maxTeamsPerSchool, active
+       team_count_enabled AS teamCountEnabled,
+       max_teams_per_school AS maxTeamsPerSchool,
+       max_teams_per_division AS maxTeamsPerDivision, active
      FROM sports WHERE id = ?`,
   ).bind(sportId).first<SportDetailRow>();
   if (!sport) throw apiError("종목을 찾을 수 없습니다.", 404, "NOT_FOUND");
@@ -962,15 +1012,16 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
   const body = await readJson<{
     name?: string;
     divisions?: Array<{ id?: string; name?: string }>;
-    teamCountEnabled?: boolean;
     maxTeamsPerSchool?: number;
+    maxTeamsPerDivision?: number;
   }>(request);
   const name = cleanText(body.name, "종목명", 40);
-  if (typeof body.teamCountEnabled !== "boolean") throw apiError("참가팀 수 입력 설정을 다시 확인해 주세요.");
-  const maxTeamsPerSchool = Number(body.maxTeamsPerSchool ?? 2);
-  if (!Number.isInteger(maxTeamsPerSchool) || maxTeamsPerSchool < 1 || maxTeamsPerSchool > 20) {
-    throw apiError("학교당 최대 팀 수는 1~20 사이로 입력해 주세요.");
-  }
+  const limitConfiguration = validateTeamLimitConfiguration(
+    body.maxTeamsPerSchool ?? sport.maxTeamsPerSchool,
+    body.maxTeamsPerDivision ?? sport.maxTeamsPerDivision,
+  );
+  if (limitConfiguration.error) throw apiError(limitConfiguration.error.message, 400, limitConfiguration.error.code);
+  const { maxTeamsPerSchool, maxTeamsPerDivision, teamCountEnabled } = limitConfiguration.value;
   if (!Array.isArray(body.divisions) || !body.divisions.length || body.divisions.length > 8) {
     throw apiError("종별을 1개 이상 8개 이하로 입력해 주세요.");
   }
@@ -1052,16 +1103,23 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
         "MAX_TEAMS_IN_USE",
       );
     }
-    if (!body.teamCountEnabled && Number(maximumItem?.value ?? 0) > 1) {
-      throw apiError("2팀 이상으로 신청된 내역이 있어 참가팀 수 입력을 해제할 수 없습니다.", 409, "TEAM_COUNT_IN_USE");
+    if (
+      maxTeamsPerDivision < Number(sport.maxTeamsPerDivision)
+      && Number(maximumItem?.value ?? 0) > maxTeamsPerDivision
+    ) {
+      throw apiError(
+        `기존 신청 중 한 종별에 ${maximumItem?.value}팀인 내역이 있어 한 종별 최대 팀 수를 ${maxTeamsPerDivision}팀으로 줄일 수 없습니다.`,
+        409,
+        "MAX_TEAMS_PER_DIVISION_IN_USE",
+      );
     }
   }
 
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `UPDATE sports SET name = ?, team_count_enabled = ?, max_teams_per_school = ?,
+      `UPDATE sports SET name = ?, team_count_enabled = ?, max_teams_per_school = ?, max_teams_per_division = ?,
          updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-    ).bind(name, body.teamCountEnabled ? 1 : 0, maxTeamsPerSchool, sportId),
+    ).bind(name, teamCountEnabled ? 1 : 0, maxTeamsPerSchool, maxTeamsPerDivision, sportId),
   ];
   normalizedDivisions.forEach((division, index) => {
     if (division.id) {
@@ -1088,14 +1146,25 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
       name: sport.name,
       teamCountEnabled: Boolean(sport.teamCountEnabled),
       maxTeamsPerSchool: Number(sport.maxTeamsPerSchool),
+      maxTeamsPerDivision: Number(sport.maxTeamsPerDivision),
       divisions: existingDivisions.map((division) => ({ id: division.id, name: division.name })),
     },
-    after: { name, teamCountEnabled: Boolean(body.teamCountEnabled), maxTeamsPerSchool, divisions: normalizedDivisions },
+    after: { name, teamCountEnabled, maxTeamsPerSchool, maxTeamsPerDivision, divisions: normalizedDivisions },
   }));
   try {
     await env.DB.batch(statements);
   } catch (error) {
-    if (error instanceof Error && /FOREIGN KEY constraint failed/iu.test(error.message)) {
+    const message = error instanceof Error ? error.message : "";
+    if (/MAX_TEAMS_PER_DIVISION_IN_USE/iu.test(message)) {
+      throw apiError("방금 저장된 신청 내역과 한 종별 최대 팀 수가 충돌합니다. 새로고침 후 다시 확인해 주세요.", 409, "MAX_TEAMS_PER_DIVISION_IN_USE");
+    }
+    if (/MAX_TEAMS_IN_USE/iu.test(message)) {
+      throw apiError("방금 저장된 신청 내역과 학교 전체 최대 팀 수가 충돌합니다. 새로고침 후 다시 확인해 주세요.", 409, "MAX_TEAMS_IN_USE");
+    }
+    if (/INVALID_TEAM_LIMIT_CONFIGURATION/iu.test(message)) {
+      throw apiError("팀 수 한도 설정을 다시 확인해 주세요.", 400, "INVALID_TEAM_LIMIT_CONFIGURATION");
+    }
+    if (/FOREIGN KEY constraint failed/iu.test(message)) {
       throw apiError("방금 저장된 신청 내역이 있어 종별을 삭제할 수 없습니다. 새로고침 후 다시 확인해 주세요.", 409, "DIVISION_IN_USE");
     }
     throw error;

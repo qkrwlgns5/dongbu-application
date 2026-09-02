@@ -20,6 +20,7 @@ type Sport = {
   displayOrder: number;
   teamCountEnabled: boolean;
   maxTeamsPerSchool: number;
+  maxTeamsPerDivision: number;
   active: boolean;
   divisions: Division[];
 };
@@ -69,8 +70,8 @@ type Dashboard = {
 type SportUpdatePayload = {
   name: string;
   divisions: Array<{ id?: string; name: string }>;
-  teamCountEnabled: boolean;
   maxTeamsPerSchool: number;
+  maxTeamsPerDivision: number;
 };
 
 type DivisionDraft = { key: string; id?: string; name: string };
@@ -113,6 +114,14 @@ function formatDate(value: string | null): string {
   const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return "-";
   return dateFormatter.format(date).replace(/\. /gu, ".").replace(". ", ". ");
+}
+
+function teamLimitLabel(sport: Pick<Sport, "maxTeamsPerSchool" | "maxTeamsPerDivision">): string {
+  return `학교 전체 최대 ${sport.maxTeamsPerSchool}팀 · 한 종별 최대 ${sport.maxTeamsPerDivision}팀`;
+}
+
+function compactTeamLimitLabel(sport: Pick<Sport, "maxTeamsPerSchool" | "maxTeamsPerDivision">): string {
+  return `전체 ${sport.maxTeamsPerSchool}팀 · 종별 ${sport.maxTeamsPerDivision}팀`;
 }
 
 function seoulInputValue(value: string): string {
@@ -326,7 +335,7 @@ function SurveyForm({ session }: { session: SchoolSession }) {
       else {
         const proposed = totalForSport(sport, next) + 1;
         if (proposed > sport.maxTeamsPerSchool) {
-          setError(`${sport.name}는 학교 전체에서 최대 ${sport.maxTeamsPerSchool}팀까지 선택할 수 있습니다.`);
+          setError(`${sport.name}는 모든 종별을 합쳐 학교 전체 최대 ${sport.maxTeamsPerSchool}팀까지 선택할 수 있습니다.`);
           return current;
         }
         next[division.id] = 1;
@@ -335,11 +344,15 @@ function SurveyForm({ session }: { session: SchoolSession }) {
     });
   }
 
-  function setTeamCount(sport: Sport, divisionId: string, count: number) {
+  function setTeamCount(sport: Sport, division: Division, count: number) {
     setSelections((current) => {
-      const next = { ...current, [divisionId]: count };
+      if (!Number.isInteger(count) || count < 1 || count > sport.maxTeamsPerDivision) {
+        setError(`${sport.name} ${division.name}는 한 종별에서 최대 ${sport.maxTeamsPerDivision}팀까지 신청할 수 있습니다.`);
+        return current;
+      }
+      const next = { ...current, [division.id]: count };
       if (totalForSport(sport, next) > sport.maxTeamsPerSchool) {
-        setError(`${sport.name}는 학교 전체에서 최대 ${sport.maxTeamsPerSchool}팀까지 신청할 수 있습니다.`);
+        setError(`${sport.name}는 모든 종별을 합쳐 학교 전체 최대 ${sport.maxTeamsPerSchool}팀까지 신청할 수 있습니다.`);
         return current;
       }
       setError("");
@@ -366,6 +379,17 @@ function SurveyForm({ session }: { session: SchoolSession }) {
       if (incomplete) {
         setError(`${incomplete.name}의 종별을 1개 이상 선택해 주세요.`);
         return;
+      }
+      for (const sport of session.sports.filter((candidate) => enabledSports.includes(candidate.id))) {
+        const invalidDivision = sport.divisions.find((division) => (selections[division.id] ?? 0) > sport.maxTeamsPerDivision);
+        if (invalidDivision) {
+          setError(`${sport.name} ${invalidDivision.name}의 기존 신청 팀 수를 ${sport.maxTeamsPerDivision}팀 이하로 수정해 주세요.`);
+          return;
+        }
+        if (totalForSport(sport) > sport.maxTeamsPerSchool) {
+          setError(`${sport.name}는 모든 종별을 합쳐 학교 전체 최대 ${sport.maxTeamsPerSchool}팀까지 신청할 수 있습니다.`);
+          return;
+        }
       }
     }
     setBusy(true);
@@ -394,7 +418,7 @@ function SurveyForm({ session }: { session: SchoolSession }) {
       <header className="survey-topbar"><Brand /><div className="survey-account"><span>{session.school.name.slice(0, 1)}</span><p><b title={session.school.name}>{session.school.name}</b><small>학교 참가 신청</small></p><button type="button" onClick={() => void leave()}>로그아웃</button></div></header>
       <form className="survey-content" onSubmit={save}>
         <section className="survey-hero">
-          <div><p className="eyebrow"><span /> STEP 02 · PARTICIPATION APPLICATION</p><h1><span>참가 종목과 종별을</span><span>선택해 주세요.</span></h1><p>종목별로 남중부·여중부를 복수 선택할 수 있습니다.</p></div>
+          <div><p className="eyebrow"><span /> STEP 02 · PARTICIPATION APPLICATION</p><h1><span>참가 종목과 종별을</span><span>선택해 주세요.</span></h1><p>종목마다 표시된 학교 전체 한도와 한 종별 한도를 확인해 주세요.</p></div>
           <aside><span>학교명</span><b title={session.school.name}>{session.school.name}</b><span>대회명</span><b title={session.tournament.name}>{session.tournament.name}</b><small className="survey-period"><span>{formatDate(session.tournament.surveyStart)}</span><span><i aria-hidden="true">~</i>{formatDate(session.tournament.surveyEnd)}</span></small></aside>
         </section>
         {session.survey.submitted && <div className="prefill-banner"><span>✓</span><p><b>기존 신청 내용을 불러왔습니다.</b><small className="prefill-meta"><span>마지막 저장 {formatDate(session.survey.updatedAt)}</span><span>· 변경 후 다시 저장해 주세요.</span></small></p></div>}
@@ -407,13 +431,19 @@ function SurveyForm({ session }: { session: SchoolSession }) {
           {session.sports.map((sport, index) => {
             const enabled = enabledSports.includes(sport.id);
             const total = totalForSport(sport);
-            const showTeamCountControls = sport.teamCountEnabled && sport.maxTeamsPerSchool >= 2;
             return <article className={`sport-card ${enabled ? "enabled" : ""}`} key={sport.id}>
               <header><span className={`sport-symbol sport-symbol-${index % 3}`} aria-hidden="true">{index === 0 ? "V" : index === 1 ? "3" : "D"}</span><div><small>SPORT {String(index + 1).padStart(2, "0")}</small><h2 title={sport.name}>{sport.name}</h2></div><button type="button" role="switch" aria-checked={enabled} onClick={() => !noParticipation && toggleSport(sport)} disabled={noParticipation}><i /><b>{enabled ? "참가" : "미참가"}</b></button></header>
-              {enabled && <div className="sport-options"><div className="option-head"><b>종별 선택</b><small>{sport.maxTeamsPerSchool >= 2 ? "복수 선택 가능" : "1개 종별 선택"}</small></div>{sport.divisions.map((division) => {
+              {enabled && <div className="sport-options"><div className="option-head"><b>종별 선택</b><small title={teamLimitLabel(sport)}>{compactTeamLimitLabel(sport)}</small></div>{sport.divisions.map((division) => {
                 const selected = Boolean(selections[division.id]);
-                return <div className={`division-row ${selected ? "selected" : ""}`} key={division.id}><button type="button" role="checkbox" aria-checked={selected} title={division.name} onClick={() => toggleDivision(sport, division)}><span>{selected ? "✓" : ""}</span><b>{division.name}</b></button>{showTeamCountControls && selected && <label><span>참가팀 수</span><select value={selections[division.id]} onChange={(event) => setTeamCount(sport, division.id, Number(event.target.value))}>{Array.from({ length: sport.maxTeamsPerSchool }, (_, teamIndex) => teamIndex + 1).map((count) => <option key={count} value={count}>{count}팀</option>)}</select></label>}</div>;
-              })}{showTeamCountControls && <p className="team-limit"><span className="team-limit-current">현재 {total}팀</span><span className="team-limit-maximum">학교 전체 합계 최대 {sport.maxTeamsPerSchool}팀</span></p>}</div>}
+                const currentCount = selections[division.id] ?? 1;
+                const otherDivisionTotal = total - (selected ? currentCount : 0);
+                const selectableMaximum = Math.max(0, Math.min(sport.maxTeamsPerDivision, sport.maxTeamsPerSchool - otherDivisionTotal));
+                const selectableCounts = Array.from({ length: selectableMaximum }, (_, teamIndex) => teamIndex + 1);
+                const currentNeedsCorrection = currentCount > selectableMaximum;
+                if (currentNeedsCorrection) selectableCounts.push(currentCount);
+                const showTeamCountControl = selected && (sport.maxTeamsPerDivision >= 2 || currentCount > sport.maxTeamsPerDivision);
+                return <div className={`division-row ${selected ? "selected" : ""}`} key={division.id}><button type="button" role="checkbox" aria-checked={selected} title={division.name} onClick={() => toggleDivision(sport, division)}><span>{selected ? "✓" : ""}</span><b>{division.name}</b></button>{showTeamCountControl && <label><span>참가팀 수</span><select value={currentCount} onChange={(event) => setTeamCount(sport, division, Number(event.target.value))}>{selectableCounts.map((count) => <option key={count} value={count} disabled={count > selectableMaximum}>{count}팀{count > selectableMaximum ? " · 기존 신청, 수정 필요" : ""}</option>)}</select></label>}</div>;
+              })}<p className="team-limit"><span className="team-limit-current">현재 {total}팀</span><span className="team-limit-maximum" title={teamLimitLabel(sport)}>{compactTeamLimitLabel(sport)}</span></p></div>}
             </article>;
           })}
         </section>
@@ -538,8 +568,8 @@ function SportEditor({ sport, busy, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   const [name, setName] = useState(sport.name);
-  const [teamCountEnabled, setTeamCountEnabled] = useState(sport.teamCountEnabled);
   const [maxTeamsPerSchool, setMaxTeamsPerSchool] = useState(sport.maxTeamsPerSchool);
+  const [maxTeamsPerDivision, setMaxTeamsPerDivision] = useState(sport.maxTeamsPerDivision);
   const [divisions, setDivisions] = useState<DivisionDraft[]>(() => {
     const existing = sport.divisions.map((division) => ({ key: division.id, id: division.id, name: division.name }));
     return existing.length ? existing : [{ key: "new-initial", name: "" }];
@@ -564,16 +594,20 @@ function SportEditor({ sport, busy, onSave, onCancel }: {
     await onSave({
       name,
       divisions: divisions.map((division) => ({ id: division.id, name: division.name })),
-      teamCountEnabled,
       maxTeamsPerSchool,
+      maxTeamsPerDivision,
     });
   }
 
   return <form className="sport-editor" onSubmit={(event) => void submit(event)}>
     <div className="sport-editor-grid">
       <label><span>종목명</span><input value={name} maxLength={40} onChange={(event) => setName(event.target.value)} required /></label>
-      <label><span>학교당 최대 팀 수</span><input type="number" min="1" max="20" value={maxTeamsPerSchool} onChange={(event) => setMaxTeamsPerSchool(Number(event.target.value))} required /></label>
+      <div className="team-limit-field-grid">
+        <label><span>학교 전체 최대 팀 수</span><input type="number" min="1" max="20" value={maxTeamsPerSchool} onChange={(event) => setMaxTeamsPerSchool(Number(event.target.value))} required /></label>
+        <label><span>한 종별 최대 팀 수</span><input type="number" min="1" max={maxTeamsPerSchool || 20} value={maxTeamsPerDivision} onChange={(event) => setMaxTeamsPerDivision(Number(event.target.value))} required /></label>
+      </div>
     </div>
+    <p className="team-limit-rule-note"><b>학교 전체</b>는 모든 종별의 합계이고, <b>한 종별</b>은 남중부 또는 여중부 각각의 한도입니다.</p>
     <fieldset className="sport-divisions">
       <legend>종별</legend>
       <div className="sport-division-list">
@@ -584,7 +618,6 @@ function SportEditor({ sport, busy, onSave, onCancel }: {
       </div>
       <button type="button" className="sport-division-add" disabled={busy || divisions.length >= 8} onClick={addDivision}>+ 종별 추가</button>
     </fieldset>
-    <label className="check-label"><input type="checkbox" checked={teamCountEnabled} onChange={(event) => setTeamCountEnabled(event.target.checked)} /><span>종별로 참가팀 수 입력 사용</span></label>
     <footer><button type="button" className="outline-button" disabled={busy} onClick={onCancel}>취소</button><button type="submit" className="solid-button" disabled={busy}>{busy ? "저장 중…" : "수정 내용 저장"}</button></footer>
   </form>;
 }
@@ -609,14 +642,14 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
   const noParticipation = responded.filter((row) => row.noParticipation);
   const participationRows = responded.filter((row) => !row.noParticipation);
   const divisionColumns = dashboard.sports.flatMap((sport) => sport.divisions.map((division) => ({ sport, division })));
-  const selectionCount = (row: ResultRow, sport: Sport, divisionId: string) => {
+  const selectionCount = (row: ResultRow, divisionId: string) => {
     const storedCount = row.selections.find((item) => item.divisionId === divisionId)?.teamCount ?? 0;
-    return storedCount > 0 ? sport.teamCountEnabled ? storedCount : 1 : 0;
+    return storedCount > 0 ? storedCount : 0;
   };
   const sportMetrics = dashboard.sports.map((sport) => {
     const divisionMetrics = sport.divisions.map((division) => {
       const participants = participationRows
-        .map((row) => ({ row, teamCount: selectionCount(row, sport, division.id) }))
+        .map((row) => ({ row, teamCount: selectionCount(row, division.id) }))
         .filter((participant) => participant.teamCount > 0);
       return {
         division,
@@ -624,13 +657,13 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
         teamCount: participants.reduce((total, participant) => total + participant.teamCount, 0),
       };
     });
-    const schoolCount = participationRows.filter((row) => sport.divisions.some((division) => selectionCount(row, sport, division.id) > 0)).length;
+    const schoolCount = participationRows.filter((row) => sport.divisions.some((division) => selectionCount(row, division.id) > 0)).length;
     const teamCount = divisionMetrics.reduce((total, division) => total + division.teamCount, 0);
     return { sport, schoolCount, teamCount, divisionMetrics };
   });
   const selectedDivisionParticipants = activeSelectedDivision
     ? participationRows
-      .map((row) => ({ row, teamCount: selectionCount(row, activeSelectedDivision.sport, activeSelectedDivision.division.id) }))
+      .map((row) => ({ row, teamCount: selectionCount(row, activeSelectedDivision.division.id) }))
       .filter((participant) => participant.teamCount > 0)
     : [];
   const selectedDivisionTeamCount = selectedDivisionParticipants.reduce((total, participant) => total + participant.teamCount, 0);
@@ -797,7 +830,7 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
     const data = new FormData(form);
     const divisions = String(data.get("divisions") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
     await run(async () => {
-      await api("admin/sports", { method: "POST", body: JSON.stringify({ eventId: selected.id, name: data.get("name"), divisions, teamCountEnabled: data.get("teamCountEnabled") === "on", maxTeamsPerSchool: Number(data.get("maxTeamsPerSchool")) }) });
+      await api("admin/sports", { method: "POST", body: JSON.stringify({ eventId: selected.id, name: data.get("name"), divisions, maxTeamsPerSchool: Number(data.get("maxTeamsPerSchool")), maxTeamsPerDivision: Number(data.get("maxTeamsPerDivision")) }) });
       await refresh(selected.id);
       form.reset();
     }, "새 종목을 추가했습니다.");
@@ -853,16 +886,16 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
           <header className="sport-metric-head"><div className="sport-metric-title"><span title={sport.name}>{sport.name}</span>{!sport.active && <small>비활성 종목</small>}</div><div className="sport-metric-totals"><p><b>{schoolCount}</b><small>참가 학교</small></p><p><b>{teamCount}</b><small>신청 팀</small></p></div></header>
           <div className="sport-division-metrics" aria-label={`${sport.name} 종별 집계`}>{divisionMetrics.map(({ division, schoolCount: divisionSchoolCount, teamCount: divisionTeamCount }) => <button type="button" className={division.active ? "" : "inactive"} key={division.id} aria-haspopup="dialog" aria-controls="division-participants-dialog" aria-label={`${sport.name} ${division.name}, ${divisionTeamCount}팀, ${divisionSchoolCount}개교 참가 학교 보기`} onClick={(event) => openDivisionParticipants(event, sport, division)}><span className="sport-division-name"><span title={division.name}>{division.name}</span>{!division.active && <small>비활성</small>}</span><b>{divisionTeamCount}<small>팀</small></b><em><span>{divisionSchoolCount}개교</span><span>학교 보기</span><i aria-hidden="true">→</i></em></button>)}</div>
         </article>)}</section>
-        <section className="results-panel"><header><div><p>ALL SCHOOLS</p><h2>학교별 신청 현황</h2></div><span>{responded.length} / {dashboard.rows.length}개교 신청</span></header><div className="results-table-wrap"><table><caption className="sr-only">{selected.name} 학교별 신청 현황</caption><thead><tr><th scope="col">#</th><th scope="col">학교명</th><th scope="col">신청 상태</th>{divisionColumns.map(({ sport, division }) => <th scope="col" key={division.id}><small>{sport.name}</small>{division.name}</th>)}<th scope="col">마지막 저장</th></tr></thead><tbody>{dashboard.rows.map((row) => <tr key={row.school.id}><td>{row.school.displayOrder}</td><td><b title={row.school.name}>{row.school.name}</b></td><td><span className={`response-status ${!row.submitted ? "waiting" : row.noParticipation ? "none" : "done"}`}>{!row.submitted ? "미신청" : row.noParticipation ? "신청 없음" : "신청 완료"}</span></td>{divisionColumns.map(({ sport, division }) => { const count = selectionCount(row, sport, division.id); return <td key={division.id}>{count ? sport.teamCountEnabled ? <b>{count}팀</b> : <span className="join-mark">참가</span> : <span className="dash">-</span>}</td>; })}<td>{formatDate(row.updatedAt)}</td></tr>)}</tbody></table></div></section>
+        <section className="results-panel"><header><div><p>ALL SCHOOLS</p><h2>학교별 신청 현황</h2></div><span>{responded.length} / {dashboard.rows.length}개교 신청</span></header><div className="results-table-wrap"><table><caption className="sr-only">{selected.name} 학교별 신청 현황</caption><thead><tr><th scope="col">#</th><th scope="col">학교명</th><th scope="col">신청 상태</th>{divisionColumns.map(({ sport, division }) => <th scope="col" key={division.id}><small>{sport.name}</small>{division.name}</th>)}<th scope="col">마지막 저장</th></tr></thead><tbody>{dashboard.rows.map((row) => <tr key={row.school.id}><td>{row.school.displayOrder}</td><td><b title={row.school.name}>{row.school.name}</b></td><td><span className={`response-status ${!row.submitted ? "waiting" : row.noParticipation ? "none" : "done"}`}>{!row.submitted ? "미신청" : row.noParticipation ? "신청 없음" : "신청 완료"}</span></td>{divisionColumns.map(({ division }) => { const count = selectionCount(row, division.id); return <td key={division.id}>{count ? <b>{count}팀</b> : <span className="dash">-</span>}</td>; })}<td>{formatDate(row.updatedAt)}</td></tr>)}</tbody></table></div></section>
       </> : tab === "event" ? <section className="admin-settings-grid">
         <article className="settings-card"><header><span>01</span><div><p>CURRENT EVENT</p><h2>대회 정보·신청 기간</h2></div></header><form key={selected.id} onSubmit={updateSelectedEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear} required /></label><label><span>대회 상태</span><input value={selected.status === "active" ? "현재 교사 화면에 공개 중" : "임시저장 · 비공개"} disabled /></label></div><label><span>대회명</span><input name="name" defaultValue={selected.name} required /></label><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={seoulInputValue(selected.surveyStart)} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(selected.surveyEnd)} required /></label></div><footer><button type="button" className="outline-button" disabled={busy || selected.status === "active"} onClick={() => void activateSelected()}>{selected.status === "active" ? "현재 대회" : "이 대회를 현재 대회로 설정"}</button><button className="solid-button" disabled={busy}>변경 사항 저장</button></footer></form></article>
         <article className="settings-card new-event-card"><header><span>02</span><div><p>NEW EVENT</p><h2>새 대회 추가</h2></div></header><p>새 대회에는 배구·3x3 농구·피구가 기본 종목으로 추가됩니다.</p><form onSubmit={createNewEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear + 1} required /></label><label><span>대회명</span><input name="name" placeholder="예: 동부학교스포츠클럽 전반기 대회" required /></label></div><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={newStart} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(newEndDate)} required /></label></div><button className="solid-button" disabled={busy}>+ 새 대회 추가</button></form></article>
       </section> : <section className="admin-settings-grid sports-management">
         <article className="settings-card"><header><span>01</span><div><p>SPORTS LIST</p><h2 title={selected.name}>{selected.name} 종목</h2></div></header><p>종별과 팀 수 기준을 수정할 수 있습니다. 신청 기록이 있는 종목은 삭제할 수 없으며 신청 기간 중에는 비활성화도 제한됩니다.</p><div className="managed-sports">{dashboard.sports.map((sport) => <section className={`managed-sport-card${sport.active ? "" : " inactive"}`} key={sport.id} aria-labelledby={`sport-name-${sport.id}`}>
-          <div className="managed-sport-summary"><span className="managed-sport-icon" aria-hidden="true">{sport.name.slice(0, 1)}</span><div className="managed-sport-copy"><span><b id={`sport-name-${sport.id}`} title={sport.name}>{sport.name}</b><i className={sport.active ? "active" : "inactive"}>{sport.active ? "활성" : "비활성"}</i></span><small title={sport.divisions.map((division) => division.name).join(" · ")}>{sport.divisions.map((division) => division.name).join(" · ")} · 학교당 최대 <span className="number-unit">{sport.maxTeamsPerSchool}팀</span>{sport.teamCountEnabled ? " · 팀 수 입력" : ""}</small></div><div className="managed-sport-actions"><button type="button" disabled={busy} aria-expanded={editingSportId === sport.id} aria-controls={`sport-editor-${sport.id}`} aria-label={`${sport.name} 수정`} onClick={() => setEditingSportId((current) => current === sport.id ? null : sport.id)}>{editingSportId === sport.id ? "닫기" : "수정"}</button><button type="button" disabled={busy} aria-label={`${sport.name} ${sport.active ? "비활성화" : "활성화"}`} onClick={() => void toggleSportActive(sport)}>{sport.active ? "비활성화" : "활성화"}</button><button type="button" className="delete" disabled={busy} aria-label={`${sport.name} 삭제`} onClick={() => void removeSport(sport)}>삭제</button></div></div>
+          <div className="managed-sport-summary"><span className="managed-sport-icon" aria-hidden="true">{sport.name.slice(0, 1)}</span><div className="managed-sport-copy"><span><b id={`sport-name-${sport.id}`} title={sport.name}>{sport.name}</b><i className={sport.active ? "active" : "inactive"}>{sport.active ? "활성" : "비활성"}</i></span><small title={`${sport.divisions.map((division) => division.name).join(" · ")} · ${teamLimitLabel(sport)}`}>{sport.divisions.map((division) => division.name).join(" · ")} · 학교 전체 최대 <span className="number-unit">{sport.maxTeamsPerSchool}팀</span> · 한 종별 최대 <span className="number-unit">{sport.maxTeamsPerDivision}팀</span></small></div><div className="managed-sport-actions"><button type="button" disabled={busy} aria-expanded={editingSportId === sport.id} aria-controls={`sport-editor-${sport.id}`} aria-label={`${sport.name} 수정`} onClick={() => setEditingSportId((current) => current === sport.id ? null : sport.id)}>{editingSportId === sport.id ? "닫기" : "수정"}</button><button type="button" disabled={busy} aria-label={`${sport.name} ${sport.active ? "비활성화" : "활성화"}`} onClick={() => void toggleSportActive(sport)}>{sport.active ? "비활성화" : "활성화"}</button><button type="button" className="delete" disabled={busy} aria-label={`${sport.name} 삭제`} onClick={() => void removeSport(sport)}>삭제</button></div></div>
           {editingSportId === sport.id && <div id={`sport-editor-${sport.id}`}><SportEditor key={`${sport.id}-${sport.divisions.map((division) => division.id).join("-")}`} sport={sport} busy={busy} onSave={(payload) => updateExistingSport(sport.id, payload)} onCancel={() => setEditingSportId(null)} /></div>}
         </section>)}</div></article>
-        <article className="settings-card"><header><span>02</span><div><p>ADD SPORT</p><h2>새 종목 추가</h2></div></header><form onSubmit={addSport}><label><span>종목명</span><input name="name" placeholder="예: 배드민턴" required /></label><label><span>종별 <small>쉼표로 구분</small></span><input name="divisions" defaultValue="남중부, 여중부" required /></label><div className="form-two"><label><span>학교당 최대 팀 수</span><input name="maxTeamsPerSchool" type="number" min="1" max="20" defaultValue="2" required /></label><label className="check-label"><input name="teamCountEnabled" type="checkbox" /><span>종별로 참가팀 수 입력 사용</span></label></div><button className="solid-button" disabled={busy}>+ 종목 추가</button></form></article>
+        <article className="settings-card"><header><span>02</span><div><p>ADD SPORT</p><h2>새 종목 추가</h2></div></header><form onSubmit={addSport}><label><span>종목명</span><input name="name" placeholder="예: 배드민턴" required /></label><label><span>종별 <small>쉼표로 구분</small></span><input name="divisions" defaultValue="남중부, 여중부" required /></label><div className="form-two"><label><span>학교 전체 최대 팀 수 <small>모든 종별 합계</small></span><input name="maxTeamsPerSchool" type="number" min="1" max="20" defaultValue="2" required /></label><label><span>한 종별 최대 팀 수 <small>남중부·여중부 각각</small></span><input name="maxTeamsPerDivision" type="number" min="1" max="20" defaultValue="1" required /></label></div><p className="team-limit-rule-note">예: 전체 2팀·한 종별 1팀은 남중부 1팀과 여중부 1팀만 가능합니다.</p><button className="solid-button" disabled={busy}>+ 종목 추가</button></form></article>
       </section>}
     </section>
     {activeSelectedDivision && <div className="division-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedDivision(null); }}>

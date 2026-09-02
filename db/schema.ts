@@ -62,6 +62,7 @@ export const sports = sqliteTable(
     displayOrder: integer("display_order").notNull().default(0),
     teamCountEnabled: integer("team_count_enabled", { mode: "boolean" }).notNull().default(false),
     maxTeamsPerSchool: integer("max_teams_per_school").notNull().default(2),
+    maxTeamsPerDivision: integer("max_teams_per_division").notNull().default(1),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

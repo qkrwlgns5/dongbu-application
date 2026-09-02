@@ -44,6 +44,7 @@ function fixtureDashboard() {
         displayOrder: 1,
         teamCountEnabled: true,
         maxTeamsPerSchool: 2,
+        maxTeamsPerDivision: 2,
         active: true,
         divisions: [
           { id: "division-secret-never-export", name: "남중부", displayOrder: 1, active: true },
@@ -56,6 +57,7 @@ function fixtureDashboard() {
         displayOrder: 2,
         teamCountEnabled: false,
         maxTeamsPerSchool: 1,
+        maxTeamsPerDivision: 1,
         active: false,
         divisions: [
           { id: "other-division-secret", name: "여중부-다른종목", displayOrder: 1, active: false },
@@ -71,7 +73,7 @@ function fixtureDashboard() {
         updatedAt: "2026-08-31 01:00:00",
         selections: [
           { divisionId: "division-secret-never-export", teamCount: 2 },
-          { divisionId: "other-division-secret", teamCount: 7 },
+          { divisionId: "other-division-secret", teamCount: 1 },
         ],
       },
       {
@@ -141,8 +143,12 @@ test("creates a polished all-sports workbook with screen-equivalent totals", asy
   assert.equal(summary.getCell("E9").value, 3, "전체 신청 팀");
   assert.equal(summary.getCell("D13").value, 1, "배구 참가 학교");
   assert.equal(summary.getCell("E13").value, 2, "배구 신청 팀");
+  assert.equal(summary.getCell("F12").value, "학교 전체 최대");
+  assert.equal(summary.getCell("G12").value, "한 종별 최대");
+  assert.equal(summary.getCell("F13").value, 2, "배구 학교 전체 최대");
+  assert.equal(summary.getCell("G13").value, 2, "배구 한 종별 최대");
   assert.equal(summary.getCell("D16").value, 1, "팀 수 입력을 쓰지 않는 피구 참가 학교");
-  assert.equal(summary.getCell("E16").value, 1, "저장값 7도 팀 수 입력 미사용이면 1팀");
+  assert.equal(summary.getCell("E16").value, 1, "피구 신청 팀");
 
   const schools = workbook.getWorksheet("학교별 전체현황");
   assert.ok(schools);
@@ -172,6 +178,10 @@ test("creates a selected-sport workbook without leaking other sports or internal
   assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ["종목 요약", "배구 참가학교", "전체학교 확인"]);
   assert.equal(workbook.getWorksheet("종목 요약").getCell("E6").value, 1, "배구 참가 학교");
   assert.equal(workbook.getWorksheet("종목 요약").getCell("G6").value, 2, "배구 신청 팀");
+  assert.equal(workbook.getWorksheet("종목 요약").getCell("E9").value, 2, "배구 학교 전체 최대");
+  assert.equal(workbook.getWorksheet("종목 요약").getCell("G9").value, 2, "배구 한 종별 최대");
+  assert.equal(workbook.getWorksheet("배구 참가학교").getCell("E6").value, 2, "참가학교 시트 학교 전체 최대");
+  assert.equal(workbook.getWorksheet("배구 참가학교").getCell("G6").value, 2, "참가학교 시트 한 종별 최대");
   for (const sheet of workbook.worksheets) {
     assert.equal(sheet.views[0]?.xSplit ?? 0, 0, `${sheet.name}: 세로 틀 고정 경계선 없음`);
   }

@@ -160,7 +160,7 @@ function selectionCount(row, sport, divisionId) {
   if (!row.submitted || row.noParticipation) return 0;
   const stored = Number(row.selections.find((selection) => selection.divisionId === divisionId)?.teamCount ?? 0);
   if (!Number.isFinite(stored) || stored <= 0) return 0;
-  return sport.teamCountEnabled ? Math.max(1, Math.floor(stored)) : 1;
+  return Math.max(1, Math.floor(stored));
 }
 
 function sportTeamCount(row, sport) {
@@ -387,7 +387,7 @@ function addOverallSummary(workbook, report, usedNames, now) {
   addMetricCard(sheet, 8, 7, 8, "데이터 확인 필요", report.unknownSelectionCount, '0"건"', report.unknownSelectionCount ? COLORS.dangerText : COLORS.teal);
 
   const tableRow = 12;
-  const headers = ["종목", "구분", "상태", "참가 학교", "신청 팀", "학교당 최대 팀", "팀 수 입력", "비고"];
+  const headers = ["종목", "구분", "상태", "참가 학교", "신청 팀", "학교 전체 최대", "한 종별 최대", "비고"];
   headers.forEach((header, index) => {
     const cell = sheet.getCell(tableRow, index + 1);
     textCell(cell, header);
@@ -404,15 +404,15 @@ function addOverallSummary(workbook, report, usedNames, now) {
       participantRows.length,
       participantRows.reduce((total, row) => total + sportTeamCount(row, sport), 0),
       sport.maxTeamsPerSchool,
-      sport.teamCountEnabled ? "사용" : "미사용",
+      sport.maxTeamsPerDivision,
       sport.active ? "" : "과거 신청 보존",
     ];
     values.forEach((value, index) => {
       const cell = sheet.getCell(rowNumber, index + 1);
       if (index === 3) numberCell(cell, value, SCHOOL_FORMAT);
-      else if (index === 4 || index === 5) numberCell(cell, value, index === 4 ? TEAM_FORMAT : '0"팀"');
+      else if (index === 4 || index === 5 || index === 6) numberCell(cell, value, index === 4 ? TEAM_FORMAT : '0"팀"');
       else textCell(cell, value);
-      styleBodyCell(cell, rowNumber, index < 3 || index > 5 ? "left" : "center");
+      styleBodyCell(cell, rowNumber, index < 3 || index > 6 ? "left" : "center");
       cell.font = { ...cell.font, bold: true, color: { argb: sport.active ? COLORS.ink : COLORS.inactiveText } };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: sport.active ? COLORS.mint : COLORS.inactive } };
     });
@@ -579,13 +579,13 @@ function participatingRowsForSport(report, sport) {
 }
 
 function addSportParticipants(workbook, report, sport, usedNames, now) {
-  const tableColumnCount = Math.max(5, sport.divisions.length + 4);
+  const tableColumnCount = Math.max(8, sport.divisions.length + 4);
   const sheet = workbook.addWorksheet(makeUniqueSheetName(`${sport.name} 참가학교`, usedNames));
-  setupSheet(sheet, Math.max(6, tableColumnCount));
+  setupSheet(sheet, tableColumnCount);
   addDocumentHeader(
     sheet,
     report,
-    Math.max(6, tableColumnCount),
+    tableColumnCount,
     `${sport.name} 참가학교 명단${sport.active ? "" : " · 비활성 종목"}`,
     sport.name,
     now,
@@ -594,7 +594,8 @@ function addSportParticipants(workbook, report, sport, usedNames, now) {
   const teams = participatingRows.reduce((total, row) => total + sportTeamCount(row, sport), 0);
   addMetricCard(sheet, 5, 1, 2, "참가 학교", participatingRows.length, SCHOOL_FORMAT);
   addMetricCard(sheet, 5, 3, 4, "신청 팀", teams, TEAM_FORMAT);
-  addMetricCard(sheet, 5, 5, 6, "학교당 최대 팀", sport.maxTeamsPerSchool, '0"팀"', sport.active ? COLORS.teal : COLORS.inactiveText);
+  addMetricCard(sheet, 5, 5, 6, "학교 전체 최대", sport.maxTeamsPerSchool, '0"팀"', sport.active ? COLORS.teal : COLORS.inactiveText);
+  addMetricCard(sheet, 5, 7, 8, "한 종별 최대", sport.maxTeamsPerDivision, '0"팀"', sport.active ? COLORS.teal : COLORS.inactiveText);
 
   const tableRow = 9;
   const headers = ["순번", "학교명", ...sport.divisions.map((division) => `${division.name}${division.active ? "" : " (비활성)"}`), "종목 합계", "마지막 저장"];
@@ -728,8 +729,8 @@ function addSportSummary(workbook, report, sport, usedNames, now) {
   addMetricCard(sheet, 5, 7, 8, "종목 신청 팀", teams, TEAM_FORMAT);
   addMetricCard(sheet, 8, 1, 2, "미신청", metrics.waitingCount, SCHOOL_FORMAT, COLORS.warningText);
   addMetricCard(sheet, 8, 3, 4, "전체 참가 신청 없음", metrics.noParticipationCount, SCHOOL_FORMAT, COLORS.warningText);
-  addMetricCard(sheet, 8, 5, 6, "학교당 최대 팀", sport.maxTeamsPerSchool, '0"팀"');
-  addMetricCard(sheet, 8, 7, 8, "종목 상태", sport.active ? 1 : 0, '[=1]"활성";[=0]"비활성"', sport.active ? COLORS.teal : COLORS.inactiveText);
+  addMetricCard(sheet, 8, 5, 6, "학교 전체 최대", sport.maxTeamsPerSchool, '0"팀"');
+  addMetricCard(sheet, 8, 7, 8, "한 종별 최대", sport.maxTeamsPerDivision, '0"팀"');
 
   const headers = ["종별", "상태", "참가 학교", "신청 팀"];
   headers.forEach((header, index) => {

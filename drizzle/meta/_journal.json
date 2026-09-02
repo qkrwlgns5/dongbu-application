@@ -22,6 +22,13 @@
       "when": 1787540512484,
       "tag": "0003_admin_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788308794082,
+      "tag": "0004_new_moon_knight",
+      "breakpoints": true
     }
   ]
 }

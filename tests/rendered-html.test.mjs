@@ -75,7 +75,9 @@ test("provides protected sport editing and deletion controls", async () => {
   assert.match(client, /function SportEditor/);
   assert.match(client, /method: "PATCH"/);
   assert.match(client, /method: "DELETE"/);
-  assert.match(client, /학교당 최대 팀 수/);
+  assert.match(client, /학교 전체 최대 팀 수/);
+  assert.match(client, /한 종별 최대 팀 수/);
+  assert.doesNotMatch(client, /종별로 참가팀 수 입력 사용/);
   assert.match(client, /\+ 종별 추가/);
   assert.match(client, /window\.confirm/);
   assert.match(api, /async function updateSport/);
@@ -96,12 +98,32 @@ test("accepts Korean school codes entered with an English keyboard layout", asyn
   assert.match(api, /const password = normalizeSchoolPasswordInput\(body\.password\)/);
 });
 
-test("hides team-count controls when a sport allows only one team", async () => {
-  const client = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
-  assert.match(client, /const showTeamCountControls = sport\.teamCountEnabled && sport\.maxTeamsPerSchool >= 2/);
-  assert.match(client, /showTeamCountControls && selected && <label><span>참가팀 수<\/span>/);
-  assert.match(client, /showTeamCountControls && <p className="team-limit">/);
-  assert.match(client, /sport\.maxTeamsPerSchool >= 2 \? "복수 선택 가능" : "1개 종별 선택"/);
+test("separates school-wide and per-division team limits in the application UI", async () => {
+  const [client, api, migration, guardMigration] = await Promise.all([
+    readFile(new URL("app/survey-app-client.tsx", root), "utf8"),
+    readFile(new URL("worker/api.ts", root), "utf8"),
+    readFile(new URL("drizzle/0004_new_moon_knight.sql", root), "utf8"),
+    readFile(new URL("drizzle/0005_team_limit_guards.sql", root), "utf8"),
+  ]);
+  assert.match(client, /const showTeamCountControl = selected && \(sport\.maxTeamsPerDivision >= 2 \|\| currentCount > sport\.maxTeamsPerDivision\)/);
+  assert.match(client, /showTeamCountControl && <label><span>참가팀 수<\/span>/);
+  assert.match(client, /sport\.maxTeamsPerSchool - otherDivisionTotal/);
+  assert.match(client, /length: selectableMaximum/);
+  assert.match(client, /<p className="team-limit">/);
+  assert.match(client, /학교 전체 최대/);
+  assert.match(client, /한 종별 최대/);
+  assert.match(client, /`전체 \$\{sport\.maxTeamsPerSchool\}팀 · 종별 \$\{sport\.maxTeamsPerDivision\}팀`/);
+  assert.doesNotMatch(client, /복수 선택 가능/);
+  assert.match(api, /max_teams_per_division AS maxTeamsPerDivision/);
+  assert.match(api, /validateTeamSelection/);
+  assert.match(api, /MAX_TEAMS_PER_DIVISION_IN_USE/);
+  assert.match(migration, /ADD `max_teams_per_division`/);
+  assert.match(migration, /WHERE `name` = '3x3 농구'/);
+  assert.match(guardMigration, /CREATE TRIGGER `sports_validate_team_limits_update`/);
+  assert.match(guardMigration, /CREATE TRIGGER `response_items_validate_team_limits_insert`/);
+  assert.match(guardMigration, /RAISE\(ABORT, 'MAX_TEAMS_PER_DIVISION_IN_USE'\)/);
+  assert.match(guardMigration, /RAISE\(ABORT, 'SCHOOL_TEAM_LIMIT_EXCEEDED'\)/);
+  assert.match(api, /TEAM_LIMIT_CHANGED/);
 });
 
 test("lets an authenticated administrator securely change login credentials", async () => {
@@ -176,6 +198,9 @@ test("uses Korean-aware wrapping and keeps compact UI tokens together", async ()
   assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*?\.admin-settings-grid \{ grid-template-columns: 1fr; \}/s);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*?\.sport-division-metrics \{ grid-template-columns: 1fr; \}/s);
   assert.match(styles, /@media \(max-width: 390px\)[\s\S]*?\.export-controls \{ grid-template-columns: 1fr; \}/s);
+  assert.match(styles, /\.team-limit-field-grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
+  assert.match(styles, /\.option-head \{[^}]*flex-wrap: nowrap/s);
+  assert.match(styles, /\.team-limit \{[^}]*flex-wrap: nowrap/s);
   assert.doesNotMatch(styles, /\.intro-copy > p br \{ display: none; \}/);
 
   assert.match(client, /className="intro-description"/);
