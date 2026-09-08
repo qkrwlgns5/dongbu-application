@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-html-link-for-pages -- vinext internal links need a full document navigation in this deployment. */
 
-import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Tournament = {
   id: string;
@@ -142,6 +142,23 @@ function seoulInputToIso(value: string): string {
   return new Date(`${value}:00+09:00`).toISOString();
 }
 
+function splitSentences(value: string): string[] {
+  const normalized = value.trim();
+  if (!normalized) return [];
+  if (typeof Intl.Segmenter === "function") {
+    return Array.from(
+      new Intl.Segmenter("ko", { granularity: "sentence" }).segment(normalized),
+      ({ segment }) => segment.trim(),
+    ).filter(Boolean);
+  }
+  return normalized.match(/[^.!?。！？]+(?:[.!?。！？]+|$)/gu)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [normalized];
+}
+
+function SentenceFlow({ text }: { text: string }) {
+  const sentences = splitSentences(text);
+  return <>{sentences.map((sentence, index) => <Fragment key={`${index}-${sentence}`}>{index > 0 ? " " : null}<span className="sentence-unit">{sentence}</span></Fragment>)}</>;
+}
+
 function Brand({ admin = false }: { admin?: boolean }) {
   return (
     <a className="brand" href={admin ? "/admin" : "/"} aria-label="참가 신청 처음으로">
@@ -152,11 +169,11 @@ function Brand({ admin = false }: { admin?: boolean }) {
 }
 
 function PageLoader({ message = "참가 신청 정보를 불러오고 있습니다." }: { message?: string }) {
-  return <main className="center-state"><span className="loading-ring" /><b>{message}</b><small>잠시만 기다려 주세요.</small></main>;
+  return <main className="center-state"><span className="loading-ring" /><b><SentenceFlow text={message} /></b><small>잠시만 기다려 주세요.</small></main>;
 }
 
 function ErrorState({ message, retry }: { message: string; retry: () => void }) {
-  return <main className="center-state error-state"><span>!</span><b>페이지를 열지 못했습니다.</b><small>{message}</small><button onClick={retry}>다시 시도</button></main>;
+  return <main className="center-state error-state"><span>!</span><b>페이지를 열지 못했습니다.</b><small><SentenceFlow text={message} /></small><button onClick={retry}>다시 시도</button></main>;
 }
 
 export function SurveyApp({ initialView = "school" }: { initialView?: "school" | "admin" }) {
@@ -268,7 +285,11 @@ function SchoolLogin({ bootstrap, onLogin }: { bootstrap: Bootstrap; onLogin: (s
               <span className="intro-title-secondary">참가 신청</span>
             </h1>
           </div>
-          <p className="intro-description">학교별 참가 종목과 종별을 신청해 주세요. 저장한 내용은 같은 학교로 다시 로그인해 확인·수정할 수 있습니다.</p>
+          <p className="intro-description prose-copy">
+            <span className="sentence-unit">학교별 참가 종목과 종별을 신청해 주세요.</span>
+            {" "}
+            <span className="sentence-unit">저장한 내용은 같은 학교로 다시 로그인해 확인·수정할 수 있습니다.</span>
+          </p>
           <div className="event-pill"><span className="event-icon" aria-hidden="true">◎</span><span><small>현재 신청 대회</small><strong title={bootstrap.tournament?.name ?? "대회 준비 중"}>{bootstrap.tournament?.name ?? "대회 준비 중"}</strong></span></div>
           {bootstrap.tournament && <div className="period-line"><span className="period-dot" aria-hidden="true" /><span className="period-range"><span className="period-date">{formatDate(bootstrap.tournament.surveyStart)}</span><span className="period-separator" aria-hidden="true">~</span><span className="period-date">{formatDate(bootstrap.tournament.surveyEnd)}</span></span><b>· 한국시간</b></div>}
         </div>
@@ -285,8 +306,8 @@ function SchoolLogin({ bootstrap, onLogin }: { bootstrap: Bootstrap; onLogin: (s
             </div>
             <label><span>비밀번호 <small>기관번호 · 한/영 모두 가능</small></span><div className="password-field"><input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} placeholder="동다XX 또는 동더XX" autoComplete="current-password" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"}>{showPassword ? "○" : "◉"}</button></div></label>
             {selectedName && <p className="selected-school-note"><span className="selected-school-check" aria-hidden="true">✓</span><span className="selected-school-label">선택한 학교</span><b title={selectedName}>{selectedName}</b></p>}
-            {error && <p className="form-error" role="alert">{error}</p>}
-            {!bootstrap.surveyState.open && <div className="closed-notice" role="alert"><b>{bootstrap.surveyState.message}</b><small>관리자에게 신청 기간을 확인해 주세요.</small></div>}
+            {error && <p className="form-error" role="alert"><SentenceFlow text={error} /></p>}
+            {!bootstrap.surveyState.open && <div className="closed-notice" role="alert"><b><SentenceFlow text={bootstrap.surveyState.message} /></b><small>관리자에게 신청 기간을 확인해 주세요.</small></div>}
             <button className="primary-action" disabled={!selectedSchool || !password || busy || !bootstrap.surveyState.open}>{busy ? "확인 중…" : "참가 신청 시작하기"} <span>→</span></button>
           </form>
           <div className="security-note"><span aria-hidden="true">✓</span><p><b>안전한 접속</b><small>기관번호는 학교 확인 용도로만 사용됩니다.</small></p></div>
@@ -447,7 +468,7 @@ function SurveyForm({ session }: { session: SchoolSession }) {
             </article>;
           })}
         </section>
-        {error && <p className="survey-error" role="alert"><span className="survey-error-icon" aria-hidden="true">!</span><span className="survey-error-message">{error}</span></p>}
+        {error && <p className="survey-error" role="alert"><span className="survey-error-icon" aria-hidden="true">!</span><span className="survey-error-message"><SentenceFlow text={error} /></span></p>}
         <footer className="survey-actions"><p><b>저장 전에 선택한 종목과 종별을 확인해 주세요.</b><small>저장 후에도 같은 학교로 다시 로그인해 수정할 수 있습니다.</small></p><button className="save-button" disabled={busy}>{busy ? "저장 중…" : session.survey.submitted ? "변경 내용 저장" : "저장"}<span>→</span></button></footer>
       </form>
       {success && <div className="modal-backdrop"><section className="success-modal" role="dialog" aria-modal="true" aria-labelledby="success-title"><span className="success-mark">✓</span><p>APPLICATION SAVED</p><h2 id="success-title">저장되었습니다.</h2><div><b title={session.school.name}>{session.school.name}</b><small title={session.tournament.name}>{session.tournament.name} 참가 신청</small></div><p className="modal-copy">확인을 누르면 안전하게 로그아웃되고 처음 로그인 화면으로 이동합니다.</p><button onClick={() => void leave()}>확인</button></section></div>}
@@ -480,7 +501,7 @@ function AdminLogin({ onLogin }: { onLogin: () => Promise<void> }) {
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "로그인하지 못했습니다."); }
     finally { setBusy(false); }
   }
-  return <main className="site-shell admin-login-shell"><header className="brand-bar"><Brand admin /><a className="admin-link" href="/">교사용 페이지</a></header><section className="admin-login-stage"><div><p className="eyebrow"><span /> ADMINISTRATION</p><h1 className="admin-login-title"><span>참가 신청을</span><span>한눈에 관리하세요.</span></h1><p className="admin-login-copy">대회·신청 기간·종목을 설정하고 42개교의 신청 현황을 실시간으로 확인합니다.</p></div><section className="login-card admin-login-card"><div className="card-accent" /><div className="card-heading"><span className="step-badge">A</span><div><p>SECURE ACCESS</p><h2>관리자 로그인</h2></div></div>{notice && <p className="login-status" role="status">✓ {notice}</p>}<form className="login-form" onSubmit={submit}><label><span>관리자 아이디</span><input name="username" autoComplete="username" required /></label><label><span>비밀번호</span><input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-action" disabled={busy}>{busy ? "확인 중…" : "관리자 화면 열기"}<span>→</span></button></form><div className="security-note"><span>✓</span><p><b>관리자 전용</b><small>모든 관리 기능은 서버에서 권한을 다시 확인합니다.</small></p></div></section></section></main>;
+  return <main className="site-shell admin-login-shell"><header className="brand-bar"><Brand admin /><a className="admin-link" href="/">교사용 페이지</a></header><section className="admin-login-stage"><div><p className="eyebrow"><span /> ADMINISTRATION</p><h1 className="admin-login-title"><span>참가 신청을</span><span>한눈에 관리하세요.</span></h1><p className="admin-login-copy">대회·신청 기간·종목을 설정하고 42개교의 신청 현황을 실시간으로 확인합니다.</p></div><section className="login-card admin-login-card"><div className="card-accent" /><div className="card-heading"><span className="step-badge">A</span><div><p>SECURE ACCESS</p><h2>관리자 로그인</h2></div></div>{notice && <p className="login-status" role="status">✓ <SentenceFlow text={notice} /></p>}<form className="login-form" onSubmit={submit}><label><span>관리자 아이디</span><input name="username" autoComplete="username" required /></label><label><span>비밀번호</span><input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert"><SentenceFlow text={error} /></p>}<button className="primary-action" disabled={busy}>{busy ? "확인 중…" : "관리자 화면 열기"}<span>→</span></button></form><div className="security-note"><span>✓</span><p><b>관리자 전용</b><small>모든 관리 기능은 서버에서 권한을 다시 확인합니다.</small></p></div></section></section></main>;
 }
 
 function AdminAccountSettings({ currentUsername }: { currentUsername: string }) {
@@ -544,17 +565,21 @@ function AdminAccountSettings({ currentUsername }: { currentUsername: string }) 
   return <section className="admin-settings-grid account-settings">
     <article className="settings-card account-card">
       <header><span>01</span><div><p>ADMIN ACCOUNT</p><h2>관리자 로그인 정보</h2></div></header>
-      <p>관리자 아이디와 비밀번호를 변경할 수 있습니다. 저장하려면 현재 비밀번호를 입력해 주세요.</p>
+      <p className="prose-copy">
+        <span className="sentence-unit">관리자 아이디와 비밀번호를 변경할 수 있습니다.</span>
+        {" "}
+        <span className="sentence-unit">저장하려면 현재 비밀번호를 입력해 주세요.</span>
+      </p>
       <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
         <label><span>관리자 아이디</span><input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={40} required /><small>공백 없이 3~40자로 입력해 주세요.</small></label>
         <label><span>현재 비밀번호</span><input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type={showPasswords ? "text" : "password"} autoComplete="current-password" required /></label>
         <div className="form-two">
-          <label><span>새 비밀번호</span><input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type={showPasswords ? "text" : "password"} autoComplete="new-password" minLength={8} maxLength={128} /><small>변경하지 않으려면 비워 두세요. 8자 이상 입력해 주세요.</small></label>
+          <label><span>새 비밀번호</span><input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type={showPasswords ? "text" : "password"} autoComplete="new-password" minLength={8} maxLength={128} /><small className="prose-copy"><span className="sentence-unit">변경하지 않으려면 비워 두세요.</span>{" "}<span className="sentence-unit">8자 이상 입력해 주세요.</span></small></label>
           <label><span>새 비밀번호 확인</span><input value={newPasswordConfirm} onChange={(event) => setNewPasswordConfirm(event.target.value)} type={showPasswords ? "text" : "password"} autoComplete="new-password" maxLength={128} /></label>
         </div>
         <label className="check-label account-password-toggle"><input type="checkbox" checked={showPasswords} onChange={(event) => setShowPasswords(event.target.checked)} /><span>입력한 비밀번호 표시</span></label>
         <div className="account-warning"><span>!</span><p><b>변경 후 모든 관리자 기기에서 로그아웃됩니다.</b><small>새 아이디와 비밀번호로 다시 로그인해 주세요.</small></p></div>
-        {error && <p className="form-error account-error" role="alert">{error}</p>}
+        {error && <p className="form-error account-error" role="alert"><SentenceFlow text={error} /></p>}
         <footer><button type="submit" className="solid-button" disabled={busy}>{busy ? "변경 중…" : "계정 정보 변경"}</button></footer>
       </form>
     </article>
@@ -869,8 +894,8 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
     <aside className="admin-sidebar"><Brand admin /><nav><small>OVERVIEW</small><button type="button" className={tab === "results" ? "active" : ""} aria-current={tab === "results" ? "page" : undefined} onClick={() => setTab("results")}><span>≡</span>결과 종합</button><small>MANAGEMENT</small><button type="button" className={tab === "event" ? "active" : ""} aria-current={tab === "event" ? "page" : undefined} onClick={() => setTab("event")}><span>▣</span>대회·기간 설정</button><button type="button" className={tab === "sports" ? "active" : ""} aria-current={tab === "sports" ? "page" : undefined} onClick={() => setTab("sports")}><span>◉</span>종목 관리</button><button type="button" className={tab === "account" ? "active" : ""} aria-current={tab === "account" ? "page" : undefined} onClick={() => setTab("account")}><span>⚙</span>계정 설정</button></nav><div className="admin-side-foot"><span>{dashboard.adminUsername.slice(0, 1).toUpperCase()}</span><p><b>{dashboard.adminUsername}</b><small>참가 신청 설정·집계</small></p><button type="button" onClick={() => void logoutAdmin()} aria-label="관리자 로그아웃">↗</button></div></aside>
     <section className="admin-main">
       <header className="admin-topbar"><div><p>ADMIN CONSOLE</p><h1>{tab === "results" ? "참가 신청 결과 종합" : tab === "event" ? "대회·신청 기간 설정" : tab === "sports" ? "종목 관리" : "관리자 계정 설정"}</h1></div><div>{tab !== "account" && <label><span>조회 대회</span><select value={selected?.id ?? ""} onChange={(event) => { setSelectedDivision(null); void refresh(event.target.value); }}>{dashboard.events.map((tournament) => <option value={tournament.id} key={tournament.id}>{tournament.academicYear} · {tournament.name}{tournament.status === "active" ? " (현재)" : ""}</option>)}</select></label>}<a href="/" target="_blank" rel="noreferrer">교사 화면 ↗</a><button type="button" className="admin-topbar-logout" onClick={() => void logoutAdmin()}>로그아웃</button></div></header>
-      {error && <div className="admin-flash error" role="alert">{error}</div>}
-      {notice && <div className="admin-flash success" role="status">{notice}</div>}
+      {error && <div className="admin-flash error" role="alert"><SentenceFlow text={error} /></div>}
+      {notice && <div className="admin-flash success" role="status"><SentenceFlow text={notice} /></div>}
       {tab === "account" ? <AdminAccountSettings currentUsername={dashboard.adminUsername} /> : !selected ? <section className="admin-empty"><b>등록된 대회가 없습니다.</b><button type="button" onClick={() => setTab("event")}>+ 첫 대회 추가</button></section> : tab === "results" ? <>
         <section className="dashboard-title"><div><p>{selected.academicYear} SCHOOL SPORTS</p><h2 title={selected.name}>{selected.name}</h2><small className="dashboard-meta"><span className="dashboard-meta-group"><span>{formatDate(selected.surveyStart)}</span><i aria-hidden="true">~</i><span>{formatDate(selected.surveyEnd)}</span></span><span className="dashboard-meta-group"><i aria-hidden="true">·</i><span>{dashboard.surveyState?.message}</span></span></small></div><span className={`status-chip ${dashboard.surveyState?.open ? "open" : "closed"}`}>{dashboard.surveyState?.open ? "진행 중" : "접수 중지"}</span></section>
         <section className="export-panel" aria-labelledby="excel-export-title">
@@ -891,7 +916,7 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
         <article className="settings-card"><header><span>01</span><div><p>CURRENT EVENT</p><h2>대회 정보·신청 기간</h2></div></header><form key={selected.id} onSubmit={updateSelectedEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear} required /></label><label><span>대회 상태</span><input value={selected.status === "active" ? "현재 교사 화면에 공개 중" : "임시저장 · 비공개"} disabled /></label></div><label><span>대회명</span><input name="name" defaultValue={selected.name} required /></label><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={seoulInputValue(selected.surveyStart)} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(selected.surveyEnd)} required /></label></div><footer><button type="button" className="outline-button" disabled={busy || selected.status === "active"} onClick={() => void activateSelected()}>{selected.status === "active" ? "현재 대회" : "이 대회를 현재 대회로 설정"}</button><button className="solid-button" disabled={busy}>변경 사항 저장</button></footer></form></article>
         <article className="settings-card new-event-card"><header><span>02</span><div><p>NEW EVENT</p><h2>새 대회 추가</h2></div></header><p>새 대회에는 배구·3x3 농구·피구가 기본 종목으로 추가됩니다.</p><form onSubmit={createNewEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear + 1} required /></label><label><span>대회명</span><input name="name" placeholder="예: 동부학교스포츠클럽 전반기 대회" required /></label></div><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={newStart} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(newEndDate)} required /></label></div><button className="solid-button" disabled={busy}>+ 새 대회 추가</button></form></article>
       </section> : <section className="admin-settings-grid sports-management">
-        <article className="settings-card"><header><span>01</span><div><p>SPORTS LIST</p><h2 title={selected.name}>{selected.name} 종목</h2></div></header><p>종별과 팀 수 기준을 수정할 수 있습니다. 신청 기록이 있는 종목은 삭제할 수 없으며 신청 기간 중에는 비활성화도 제한됩니다.</p><div className="managed-sports">{dashboard.sports.map((sport) => <section className={`managed-sport-card${sport.active ? "" : " inactive"}`} key={sport.id} aria-labelledby={`sport-name-${sport.id}`}>
+        <article className="settings-card"><header><span>01</span><div><p>SPORTS LIST</p><h2 title={selected.name}>{selected.name} 종목</h2></div></header><p className="prose-copy"><span className="sentence-unit">종별과 팀 수 기준을 수정할 수 있습니다.</span>{" "}<span className="sentence-unit">신청 기록이 있는 종목은 삭제할 수 없으며 신청 기간 중에는 비활성화도 제한됩니다.</span></p><div className="managed-sports">{dashboard.sports.map((sport) => <section className={`managed-sport-card${sport.active ? "" : " inactive"}`} key={sport.id} aria-labelledby={`sport-name-${sport.id}`}>
           <div className="managed-sport-summary"><span className="managed-sport-icon" aria-hidden="true">{sport.name.slice(0, 1)}</span><div className="managed-sport-copy"><span><b id={`sport-name-${sport.id}`} title={sport.name}>{sport.name}</b><i className={sport.active ? "active" : "inactive"}>{sport.active ? "활성" : "비활성"}</i></span><small title={`${sport.divisions.map((division) => division.name).join(" · ")} · ${teamLimitLabel(sport)}`}>{sport.divisions.map((division) => division.name).join(" · ")} · 학교 전체 최대 <span className="number-unit">{sport.maxTeamsPerSchool}팀</span> · 한 종별 최대 <span className="number-unit">{sport.maxTeamsPerDivision}팀</span></small></div><div className="managed-sport-actions"><button type="button" disabled={busy} aria-expanded={editingSportId === sport.id} aria-controls={`sport-editor-${sport.id}`} aria-label={`${sport.name} 수정`} onClick={() => setEditingSportId((current) => current === sport.id ? null : sport.id)}>{editingSportId === sport.id ? "닫기" : "수정"}</button><button type="button" disabled={busy} aria-label={`${sport.name} ${sport.active ? "비활성화" : "활성화"}`} onClick={() => void toggleSportActive(sport)}>{sport.active ? "비활성화" : "활성화"}</button><button type="button" className="delete" disabled={busy} aria-label={`${sport.name} 삭제`} onClick={() => void removeSport(sport)}>삭제</button></div></div>
           {editingSportId === sport.id && <div id={`sport-editor-${sport.id}`}><SportEditor key={`${sport.id}-${sport.divisions.map((division) => division.id).join("-")}`} sport={sport} busy={busy} onSave={(payload) => updateExistingSport(sport.id, payload)} onCancel={() => setEditingSportId(null)} /></div>}
         </section>)}</div></article>

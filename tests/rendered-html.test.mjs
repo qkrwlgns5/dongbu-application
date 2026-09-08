@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { normalizeSchoolPasswordInput } from "../worker/school-password.js";
@@ -178,22 +179,40 @@ test("summarizes division teams and opens a scroll-locked participant dialog", a
   assert.match(styles, /\.division-participant-list \{[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain/s);
 });
 
+test("self-hosts and globally applies the requested NanumSquareRound OTF ExtraBold font", async () => {
+  const [styles, font] = await Promise.all([
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("public/fonts/NanumSquareRoundOTFEB.otf", root)),
+  ]);
+
+  assert.match(styles, /@font-face \{[^}]*font-family: "NanumSquareRoundOTFEB";[^}]*url\("\/fonts\/NanumSquareRoundOTFEB\.otf"\) format\("opentype"\);[^}]*font-weight: 800;[^}]*font-display: swap;/s);
+  assert.match(styles, /html \{[^}]*font-family: var\(--font-ui\);[^}]*font-synthesis: none;/s);
+  assert.match(styles, /body \{[^}]*font-family: inherit;[^}]*font-weight: 800;/s);
+  assert.match(styles, /button, input, select, textarea, option, optgroup \{ font: inherit; \}/);
+  assert.doesNotMatch(styles, /Pretendard/);
+  assert.equal(font.byteLength, 432_680);
+  assert.equal(createHash("sha256").update(font).digest("hex"), "c1e41280f9e586f2b2a1c934d2bcec730049ffd5d8d721a86a24456017fb0905");
+});
+
 test("uses Korean-aware wrapping and keeps compact UI tokens together", async () => {
   const [client, styles] = await Promise.all([
     readFile(new URL("app/survey-app-client.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
   ]);
 
-  assert.match(styles, /html \{[^}]*line-break: strict/s);
-  assert.match(styles, /body \{[^}]*word-break: keep-all/s);
-  assert.doesNotMatch(styles, /body \{[^}]*overflow-wrap: anywhere/s);
-  assert.match(styles, /\.form-error,[\s\S]*?\.center-state small \{[^}]*overflow-wrap: anywhere/s);
+  assert.match(styles, /html \{[^}]*line-break: strict;[^}]*word-break: keep-all;[^}]*overflow-wrap: break-word;[^}]*text-wrap: pretty;/s);
+  assert.match(styles, /body \{[^}]*word-break: keep-all;[^}]*overflow-wrap: break-word;/s);
+  assert.doesNotMatch(styles, /overflow-wrap: anywhere/);
+  assert.match(styles, /\.form-error,[\s\S]*?\.center-state small \{[^}]*overflow-wrap: break-word/s);
+  assert.match(styles, /\.sentence-unit \{[^}]*display: inline-block;[^}]*inline-size: max-content;[^}]*max-inline-size: 100%;/s);
   assert.match(styles, /\.sport-metric-title > span \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap/s);
   assert.match(styles, /\.results-panel th \{[^}]*vertical-align: middle;[^}]*white-space: nowrap/s);
-  assert.match(styles, /\.intro-title-primary \{[^}]*white-space: nowrap/s);
+  assert.match(styles, /\.intro-title-primary \{[^}]*max-width: 100%;/s);
+  assert.doesNotMatch(styles, /\.intro-title-primary \{[^}]*white-space: nowrap/s);
+  assert.doesNotMatch(styles, /\.survey-hero h1 > span \{[^}]*white-space: nowrap/s);
+  assert.doesNotMatch(styles, /\.admin-login-title > span \{[^}]*white-space: nowrap/s);
   assert.match(styles, /\.period-line \{[^}]*flex-wrap: wrap/s);
   assert.match(styles, /\.center-state b, \.center-state small \{[^}]*max-width: 100%/s);
-  assert.match(styles, /\.center-state small \{[^}]*overflow-wrap: anywhere/s);
   assert.match(styles, /\.admin-topbar > div:last-child \{[^}]*flex-wrap: wrap/s);
   assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*?\.admin-settings-grid \{ grid-template-columns: 1fr; \}/s);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*?\.sport-division-metrics \{ grid-template-columns: 1fr; \}/s);
@@ -203,11 +222,19 @@ test("uses Korean-aware wrapping and keeps compact UI tokens together", async ()
   assert.match(styles, /\.team-limit \{[^}]*flex-wrap: nowrap/s);
   assert.doesNotMatch(styles, /\.intro-copy > p br \{ display: none; \}/);
 
-  assert.match(client, /className="intro-description"/);
+  assert.match(client, /className="intro-description prose-copy"/);
   assert.match(client, /className="period-date"/);
   assert.match(client, /className="school-name"/);
   assert.match(client, /className="team-limit-maximum"/);
   assert.match(client, /className="survey-error-message"/);
   assert.match(client, /className="dashboard-meta"/);
   assert.match(client, /className="sport-division-name"/);
+  assert.match(client, /function SentenceFlow/);
+  assert.match(client, /new Intl\.Segmenter\("ko", \{ granularity: "sentence" \}\)/);
+  assert.match(client, /<SentenceFlow text=\{error\} \/>/);
+  assert.match(client, /<SentenceFlow text=\{notice\} \/>/);
+  assert.match(client, /className="intro-description prose-copy"/);
+  assert.match(client, /<span className="sentence-unit">학교별 참가 종목과 종별을 신청해 주세요\.<\/span>/);
+  assert.match(client, /<span className="sentence-unit">저장한 내용은 같은 학교로 다시 로그인해 확인·수정할 수 있습니다\.<\/span>/);
+  assert.match(client, /<p className="prose-copy">\s*<span className="sentence-unit">관리자 아이디와 비밀번호를 변경할 수 있습니다\.<\/span>/s);
 });
