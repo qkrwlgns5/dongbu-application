@@ -330,7 +330,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .sport-metric-title > span { min-width: 0; overflow: hidden; color: #274f54; font-size: 14px; font-weight: 850; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .sport-metric-title > small { width: fit-content; padding: 3px 6px; border-radius: 999px; color: #687d7e; background: #e8edec; font-size: 8px; font-weight: 800; }
 .sport-metric-totals { flex: 0 0 auto; display: flex; gap: 20px; }
-.sport-metric-totals p { margin: 0; display: grid; gap: 2px; text-align: right; white-space: nowrap; }
+.sport-metric-totals p { margin: 0; display: grid; gap: 2px; justify-items: center; text-align: center; white-space: nowrap; }
 .sport-metric-totals b { color: #0c766c; font-size: 20px; line-height: 1; }
 .sport-metric-totals small { color: #788c8e; font-size: 10px; }
 .sport-division-metrics { padding-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border-top: 1px solid #e5edec; }
