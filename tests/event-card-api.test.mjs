@@ -4,7 +4,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
-import { eventCardCopy, normalizeEventCardCopy } from "../app/event-card-copy.js";
+import { eventCardCopy, normalizeEventCardCopy, formatEventCardDate } from "../app/event-card-copy.js";
 
 // Run the real handler against SQLite in memory. No production credentials,
 // HTTP calls, or local/remote application databases are used by these checks.
@@ -55,6 +55,14 @@ async function fixture() {
   assert.equal(admin.status, 200);
   return { sqlite, call, cookie: admin.cookie, start, end };
 }
+
+test("card period uses Korean weekdays and correct Seoul dates and times", () => {
+  assert.equal(formatEventCardDate("2026-09-13T15:00:00.000Z"), "09.14.(월) 00:00");
+  assert.equal(formatEventCardDate("2026-09-18T08:00:00.000Z"), "09.18.(금) 17:00");
+  assert.equal(formatEventCardDate("2026-09-13T14:59:00.000Z"), "09.13.(일) 23:59");
+  assert.equal(formatEventCardDate("2026-09-18 08:00:00"), "09.18.(금) 17:00");
+  assert.equal(formatEventCardDate("invalid"), "-");
+});
 
 test("card copy has event-aware defaults, explicit hiding and bounded plain text", () => {
   const current = { academicYear: 2026, name: "하반기 동부동락 대회", cardCopy: "{}" };

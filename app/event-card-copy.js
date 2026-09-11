@@ -10,6 +10,26 @@ export const EVENT_CARD_FIELDS = [
   { key: "footer", label: "하단 안내 문구", max: 100 },
 ];
 
+const cardDateFormatter = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+export function formatEventCardDate(value) {
+  if (!value) return "-";
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(value) ? `${value.replace(" ", "T")}Z` : value;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return "-";
+  const parts = cardDateFormatter.formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("month")}.${get("day")}.(${get("weekday")}) ${get("hour")}:${get("minute")}`;
+}
+
 export function normalizeEventCardCopy(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("안내 카드 문구를 확인해 주세요.");
   const result = {};

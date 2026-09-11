@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-html-link-for-pages -- vinext internal links need a full document navigation in this deployment. */
 
 import { FormEvent, Fragment, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { EVENT_CARD_FIELDS, eventCardCopy } from "./event-card-copy.js";
+import { EVENT_CARD_FIELDS, eventCardCopy, formatEventCardDate } from "./event-card-copy.js";
 
 type Tournament = {
   id: string;
@@ -199,7 +199,7 @@ function EventCard({ tournament, sports, schoolCount, copy }: { tournament: Tour
   return <aside className="event-card" aria-label="대회 참가 안내">
     <div className="event-card-kicker">{content.eyebrow && <span>{content.eyebrow}</span>}{content.badge && <span>{content.badge}</span>}</div>
     <div className="event-card-titles">{content.title && <h2><CardText text={content.title} /></h2>}{content.subtitle && <h3><CardText text={content.subtitle} /></h3>}{content.description && <p><CardText text={content.description} /></p>}</div>
-    <div className="event-card-details">{tournament && <div><UiIcon name="calendar" /><span>신청 기간</span><b><span>{formatDate(tournament.surveyStart)}</span><span>— {formatDate(tournament.surveyEnd)}</span></b><small>한국시간 기준</small></div>}{content.target && <div><UiIcon name="school" /><span>참가 대상</span><b><SentenceFlow text={content.target} /></b></div>}</div>
+    <div className="event-card-details">{tournament && <div><UiIcon name="calendar" /><span>신청 기간</span><b><span>{formatEventCardDate(tournament.surveyStart)}</span><span>~ {formatEventCardDate(tournament.surveyEnd)}</span></b></div>}{content.target && <div><UiIcon name="school" /><span>참가 대상</span><b><SentenceFlow text={content.target} /></b></div>}</div>
     <div className="event-card-sports">{sports.filter((sport) => sport.active).map((sport) => <span key={sport.id}>{sport.name}</span>)}</div>
     <div className="event-card-bottom">{content.footer && <span><UiIcon name="check" /><SentenceFlow text={content.footer} /></span>}<b>{schoolCount}<small>개교</small></b></div>
   </aside>;
