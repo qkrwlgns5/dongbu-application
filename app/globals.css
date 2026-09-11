@@ -199,10 +199,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .sports-grid.disabled { opacity: .48; pointer-events: none; filter: grayscale(.25); }
 .sport-card { overflow: hidden; align-self: start; border: 1px solid #dce9e8; border-radius: 20px; background: #fff; box-shadow: 0 12px 30px rgba(39,70,72,.06); transition: .2s ease; }
 .sport-card.enabled { border-color: #98d7cd; box-shadow: 0 16px 34px rgba(15,118,110,.1); }
-.sport-card > header { padding: 20px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 56px; align-items: center; gap: 11px; }
-.sport-symbol { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 13px; color: white; background: linear-gradient(145deg, #0f766e, #2bc4b0); font-weight: 900; }
-.sport-symbol-1 { background: linear-gradient(145deg, #0284c7, #38bdf8); }
-.sport-symbol-2 { background: linear-gradient(145deg, #f59e0b, #fbbf24); }
+.sport-card > header { padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) 56px; align-items: center; gap: 11px; }
 .sport-card header > div { min-width: 0; }
 .sport-card header small { color: #8ba0a1; font-size: 8px; font-weight: 800; letter-spacing: .12em; }
 .sport-card h2 { margin: 2px 0 0; overflow: hidden; font-size: 18px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }

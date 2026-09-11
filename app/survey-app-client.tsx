@@ -53,6 +53,16 @@ type SchoolSession = {
   survey: Survey;
 };
 
+type SportParticipants = {
+  id: string;
+  name: string;
+  schoolCount: number;
+  teamCount: number;
+  divisions: Array<{ id: string; name: string; schoolCount: number; teamCount: number }>;
+  schools: Array<{ schoolId: string; schoolName: string; isOwnSchool: boolean; teamCount: number; selections: Array<{ divisionId: string; divisionName: string; teamCount: number }> }>;
+};
+type ParticipantOverview = { tournamentId: string; queriedAt: string; sports: SportParticipants[] };
+
 type ResultRow = {
   school: School;
   submitted: boolean;
@@ -356,6 +366,37 @@ function SurveyForm({ session }: { session: SchoolSession }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [participants, setParticipants] = useState<ParticipantOverview | null>(null);
+  const [participantsLoading, setParticipantsLoading] = useState(true);
+  const [participantsError, setParticipantsError] = useState("");
+  const [participantsRefresh, setParticipantsRefresh] = useState(0);
+  const [participantSport, setParticipantSport] = useState<Sport | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setParticipantsLoading(true);
+    setParticipantsError("");
+    api<ParticipantOverview>("school/participants", { signal: controller.signal })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        if (data.tournamentId !== session.tournament.id) throw new Error("대회가 변경되었습니다. 다시 로그인해 주세요.");
+        setParticipants(data);
+      })
+      .catch((requestError) => {
+        if (controller.signal.aborted) return;
+        setParticipants(null);
+        setParticipantsError(requestError instanceof Error ? requestError.message : "신청 학교를 불러오지 못했습니다.");
+      })
+      .finally(() => { if (!controller.signal.aborted) setParticipantsLoading(false); });
+    return () => controller.abort();
+  }, [session.tournament.id, session.school.id, participantsRefresh]);
+
+  function openParticipants(sport: Sport) {
+    if (busy || success) return;
+    setParticipantSport(sport);
+    setParticipantsLoading(true);
+    setParticipantsRefresh((value) => value + 1);
+  }
 
   function totalForSport(sport: Sport, next = selections) {
     return sport.divisions.reduce((total, division) => total + (next[division.id] ?? 0), 0);
@@ -474,12 +515,12 @@ function SurveyForm({ session }: { session: SchoolSession }) {
 
         <div className="application-layout"><div className="application-main">
         <div className="intent-control"><span>이번 대회 참가 여부</span><div className="intent-options" role="group" aria-label="참가 여부"><button type="button" aria-pressed={!noParticipation} disabled={busy} onClick={() => { setNoParticipation(false); setError(""); }}>참가합니다</button><button type="button" aria-pressed={noParticipation} disabled={busy} onClick={chooseNoParticipation}>참가하지 않습니다</button></div></div>
-        {noParticipation ? <section className="application-none"><UiIcon name="school" /><h2>이번 대회는 참가하지 않습니다.</h2><p>‘참가 신청 저장’을 누르면<br />우리 학교가 신청 완료로 집계됩니다.</p></section> : <section className="sports-grid">
+        {noParticipation ? <><section className="application-none"><UiIcon name="school" /><h2>이번 대회는 참가하지 않습니다.</h2><p>‘참가 신청 저장’을 누르면<br />우리 학교가 신청 완료로 집계됩니다.</p></section><section className="participant-none-overview" aria-label="종목별 신청 학교 현황">{session.sports.map((sport) => <article key={sport.id}><h3>{sport.name}</h3><ParticipantSportLink sport={sport} data={participants?.sports.find((item) => item.id === sport.id)} loading={participantsLoading} error={participantsError} disabled={busy || success} onOpen={() => openParticipants(sport)} /></article>)}</section></> : <section className="sports-grid">
           {session.sports.map((sport, index) => {
             const enabled = enabledSports.includes(sport.id);
             const total = totalForSport(sport);
             return <article className={`sport-card ${enabled ? "enabled" : ""}`} key={sport.id}>
-              <header><span className={`sport-symbol sport-symbol-${index % 3}`} aria-hidden="true">{sport.name === "배구" ? "VB" : /3[x×]3/.test(sport.name) ? "3×3" : sport.name === "피구" ? "DB" : sport.name.slice(0, 2)}</span><div><h2 title={sport.name}>{sport.name}</h2><small>{sport.name === "배구" ? "VOLLEYBALL" : /3[x×]3/.test(sport.name) ? "BASKETBALL" : sport.name === "피구" ? "DODGEBALL" : `SPORT ${String(index + 1).padStart(2, "0")}`}</small></div><button type="button" role="switch" aria-label={`${sport.name} 참가`} aria-checked={enabled} onClick={() => toggleSport(sport)} disabled={busy}><i /><b>{enabled ? "참가" : "미선택"}</b></button></header>
+              <header><div className="sport-name-block"><h2 title={sport.name}>{sport.name}</h2><small lang="en">{sport.name === "배구" ? "VOLLEYBALL" : /3[x×]3/.test(sport.name) ? "BASKETBALL" : sport.name === "피구" ? "DODGEBALL" : `SPORT ${String(index + 1).padStart(2, "0")}`}</small></div><button type="button" role="switch" aria-label={`${sport.name} 참가`} aria-checked={enabled} onClick={() => toggleSport(sport)} disabled={busy}><i /><b>{enabled ? "참가" : "미선택"}</b></button></header>
               <div className="sport-rules"><span>학교 합계 <b>최대 {sport.maxTeamsPerSchool}팀</b></span><span>종별 <b>최대 {sport.maxTeamsPerDivision}팀</b></span></div>
               <div className="sport-options"><div className="division-grid">{sport.divisions.map((division) => {
                 const selected = Boolean(selections[division.id]);
@@ -492,14 +533,70 @@ function SurveyForm({ session }: { session: SchoolSession }) {
                 const showTeamCountControl = selected && (sport.maxTeamsPerDivision >= 2 || currentCount > sport.maxTeamsPerDivision);
                 return <div className={`division-row ${selected ? "selected" : ""}`} key={division.id}><button type="button" role="checkbox" aria-checked={selected} title={division.name} aria-label={`${sport.name} ${division.name} 참가`} disabled={busy} onClick={() => toggleDivision(sport, division)}><span>{selected ? "✓" : ""}</span><b>{division.name}</b></button>{showTeamCountControl && (sport.maxTeamsPerDivision <= 3 && !currentNeedsCorrection ? <div className="division-teams" role="group" aria-label={`${sport.name} ${division.name} 참가팀 수`}>{Array.from({ length: sport.maxTeamsPerDivision }, (_, n) => n + 1).map((count) => <button type="button" key={count} aria-pressed={currentCount === count} disabled={busy || count > selectableMaximum} onClick={() => setTeamCount(sport, division, count)}>{count}팀</button>)}</div> : <label><span>참가팀 수</span><select aria-label={`${sport.name} ${division.name} 참가팀 수`} value={currentCount} disabled={busy} onChange={(event) => setTeamCount(sport, division, Number(event.target.value))}>{selectableCounts.map((count) => <option key={count} value={count} disabled={count > selectableMaximum}>{count}팀{count > selectableMaximum ? " · 기존 신청, 수정 필요" : ""}</option>)}</select></label>)}{!selected && <small className="division-empty">선택 안 함</small>}</div>;
               })}</div>{enabled && <p className="team-limit"><span className="team-limit-current">현재 {total}팀</span><span className="team-limit-maximum" title={teamLimitLabel(sport)}>{compactTeamLimitLabel(sport)}</span></p>}</div>
+              <ParticipantSportLink sport={sport} data={participants?.sports.find((item) => item.id === sport.id)} loading={participantsLoading} error={participantsError} disabled={busy || success} onOpen={() => openParticipants(sport)} />
             </article>;
           })}
         </section>}
         </div><aside className="application-summary" aria-label="신청 내용 요약"><header><small>APPLICATION SUMMARY</small><h2>우리 학교 신청 내역</h2><p>선택한 내용을 한 번 더 확인해 주세요.</p></header><div className="application-summary-body"><div className="summary-school"><UiIcon name="school" />{session.school.name}</div><div className="summary-selections" aria-live="polite">{!noParticipation && session.sports.filter((sport) => totalForSport(sport) > 0).map((sport) => <div key={sport.id}><b>{sport.name}</b><p>{sport.divisions.filter((division) => selections[division.id]).map((division) => <span key={division.id}>{division.name} <b>{selections[division.id]}팀</b></span>)}</p></div>)}{(noParticipation || !Object.keys(selections).length) && <p className="summary-empty">{noParticipation ? "이번 대회 참가 신청 없음" : "참가할 종별을 선택해 주세요."}</p>}</div><div className="summary-total"><span>{noParticipation ? "참가 신청 없음" : "총 신청 팀"}</span><b>{noParticipation ? 0 : Object.values(selections).reduce((sum, count) => sum + count, 0)}<small>팀</small></b></div>{error && <p className="survey-error summary-error" role="alert"><span className="survey-error-message"><SentenceFlow text={error} /></span></p>}<button className="save-button" disabled={busy}>{busy ? "저장 중…" : session.survey.submitted ? "변경 내용 저장" : "참가 신청 저장"}<UiIcon name="check" /></button><p className="summary-note">신청 기간 안에는 다시 로그인해<br />수정할 수 있어요.</p></div></aside></div>
       </form>
       {success && <SaveConfirmation school={session.school.name} tournament={session.tournament.name} onConfirm={leave} />}
+      {participantSport && <SchoolParticipantsDialog key={participantSport.id} sport={participantSport} data={participants?.sports.find((sport) => sport.id === participantSport.id) ?? null} loading={participantsLoading} error={participantsError} queriedAt={participants?.queriedAt ?? null} onRefresh={() => { setParticipantsLoading(true); setParticipantsRefresh((value) => value + 1); }} onClose={() => setParticipantSport(null)} />}
     </main>
   );
+}
+
+function ParticipantSportLink({ sport, data, loading, error, disabled, onOpen }: { sport: Sport; data?: SportParticipants; loading: boolean; error: string; disabled: boolean; onOpen: () => void }) {
+  return <div className="participant-sport-strip">
+    <div><span className="participant-strip-label">저장된 참가 신청</span><b>{loading ? "현황 확인 중…" : error || !data ? "현황을 확인해 주세요" : `${data.schoolCount}개교 · ${data.teamCount}팀`}</b></div>
+    <button type="button" className="participant-open-button" aria-label={`${sport.name} 신청 학교 보기`} aria-haspopup="dialog" aria-controls="school-participants-dialog" disabled={disabled} onClick={onOpen}>신청 학교 보기 <UiIcon name="arrow" /></button>
+  </div>;
+}
+
+function SchoolParticipantsDialog({ sport, data, loading, error, queriedAt, onRefresh, onClose }: { sport: Sport; data: SportParticipants | null; loading: boolean; error: string; queriedAt: string | null; onRefresh: () => void; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [divisionId, setDivisionId] = useState("all");
+  const selectedDivision = data?.divisions.find((division) => division.id === divisionId);
+  const selectedId = selectedDivision?.id ?? "all";
+  const visibleSchools = data?.schools.filter((school) => selectedId === "all" || school.selections.some((selection) => selection.divisionId === selectedId)) ?? [];
+  useEffect(() => {
+    const element = dialog.current;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const body = document.body;
+    const root = document.documentElement;
+    const scrollY = window.scrollY;
+    const width = Math.max(0, window.innerWidth - root.clientWidth);
+    const beforeBody = { overflow: body.style.overflow, position: body.style.position, top: body.style.top, width: body.style.width, paddingRight: body.style.paddingRight };
+    const beforeRoot = { overflow: root.style.overflow, overscrollBehavior: root.style.overscrollBehavior, scrollBehavior: root.style.scrollBehavior };
+    Object.assign(body.style, { overflow: "hidden", position: "fixed", top: `-${scrollY}px`, width: "100%", ...(width ? { paddingRight: `${width}px` } : {}) });
+    Object.assign(root.style, { overflow: "hidden", overscrollBehavior: "none" });
+    element?.showModal();
+    return () => {
+      element?.close();
+      Object.assign(body.style, beforeBody);
+      Object.assign(root.style, beforeRoot, { scrollBehavior: "auto" });
+      window.scrollTo(0, scrollY);
+      trigger?.focus({ preventScroll: true });
+      root.style.scrollBehavior = beforeRoot.scrollBehavior;
+    };
+  }, []);
+  const schoolCount = selectedDivision?.schoolCount ?? data?.schoolCount ?? 0;
+  const teamCount = selectedDivision?.teamCount ?? data?.teamCount ?? 0;
+  const available = !loading && !error && data !== null;
+  return <dialog ref={dialog} id="school-participants-dialog" className="school-participants-dialog" aria-labelledby="school-participants-title" aria-describedby="school-participants-note" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose(); } }}>
+    <section className="school-participants-surface">
+      <header><div><p>PARTICIPATING SCHOOLS</p><h2 id="school-participants-title">{sport.name} <span>신청 학교</span></h2></div><button type="button" className="participants-close" aria-label="신청 학교 창 닫기" onClick={onClose}>×</button></header>
+      <p id="school-participants-note">저장 완료된 신청만 표시됩니다. 신청 기간 중에는 바뀔 수 있습니다.</p>
+      <div className="participant-filter" role="group" aria-label="참가 종별 필터"><button type="button" aria-pressed={selectedId === "all"} onClick={() => setDivisionId("all")}>전체</button>{(data?.divisions ?? sport.divisions).map((division) => <button type="button" key={division.id} aria-pressed={selectedId === division.id} onClick={() => setDivisionId(division.id)}>{division.name}</button>)}</div>
+      <div className="participant-dialog-stats" aria-live="polite"><div><b>{available ? schoolCount : "—"}</b><span>참가 학교</span></div><div><b>{available ? teamCount : "—"}</b><span>신청 팀</span></div>{available && <p>{selectedDivision ? selectedDivision.name : data.divisions.map((division) => `${division.name} ${division.teamCount}팀`).join(" · ")}</p>}</div>
+      <div className="participant-dialog-list" aria-busy={loading} aria-live="polite">
+        {loading ? <div className="participant-empty"><span className="loading-ring" /><b>신청 학교를 확인하고 있습니다.</b></div> : error || !data ? <div className="participant-empty" role="alert"><b><SentenceFlow text={error || "현황을 불러오지 못했습니다."} /></b><button type="button" className="outline-button" onClick={onRefresh}>다시 불러오기</button></div> : !visibleSchools.length ? <div className="participant-empty"><UiIcon name="school" /><b>아직 신청한 학교가 없습니다.</b><p>{selectedDivision ? `${selectedDivision.name}에 저장된 신청이 없습니다.` : "이 종목의 첫 참가 신청을 기다리고 있어요."}</p></div> : <ul>{visibleSchools.map((school) => {
+          const selections = school.selections.filter((selection) => selectedId === "all" || selection.divisionId === selectedId);
+          return <li key={school.schoolId} className={school.isOwnSchool ? "is-own-school" : ""}><div className="participant-school-name"><b>{school.schoolName}</b>{school.isOwnSchool && <span>우리 학교</span>}</div><div className="participant-school-teams">{selections.map((selection) => <span key={selection.divisionId}>{selection.divisionName} <b>{selection.teamCount}팀</b></span>)}</div><b className="participant-school-total">{selections.reduce((sum, selection) => sum + selection.teamCount, 0)}<small>팀</small></b></li>;
+        })}</ul>}
+      </div>
+      <footer><div><small>{queriedAt && !error ? `${new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(queriedAt))} 조회` : "저장된 신청 기준"}</small><button type="button" onClick={onRefresh} disabled={loading}>현황 새로고침</button></div><button type="button" className="solid-button" onClick={onClose}>닫기</button></footer>
+    </section>
+  </dialog>;
 }
 
 function SaveConfirmation({ school, tournament, onConfirm }: { school: string; tournament: string; onConfirm: () => Promise<void> }) {

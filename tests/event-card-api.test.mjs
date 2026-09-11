@@ -173,6 +173,59 @@ test("header settings are admin-only and preserve other settings and submitted a
   } finally { sqlite.close(); }
 });
 
+test("teacher participant lists show only saved active entries in the session tournament", async () => {
+  const { sqlite, call, cookie, start, end } = await fixture();
+  try {
+    assert.equal((await call("school/participants")).status, 401);
+    assert.equal((await call("school/participants", { cookie })).status, 401);
+    const school = await call("school/login", { method: "POST", body: { schoolId: "test-school", password: "ehdek99" } });
+    const schoolCookie = school.cookie;
+    const id = school.data.tournament.id;
+    const get = async (query = "") => (await call(`school/participants${query}`, { cookie: schoolCookie })).data;
+    let listed = await get();
+    assert.equal(listed.tournamentId, id);
+    assert.equal(listed.sports.length, 3);
+    assert.ok(listed.sports.every((sport) => sport.schoolCount === 0 && sport.teamCount === 0));
+    const save = await call("school/survey", { method: "PUT", cookie: schoolCookie, body: { revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }, { divisionId: "division-basketball-female", teamCount: 1 }] } });
+    assert.equal(save.status, 200);
+    const others = sqlite.prepare("SELECT id FROM schools WHERE id <> 'test-school' ORDER BY display_order LIMIT 3").all();
+    sqlite.prepare("INSERT INTO responses (tournament_id, school_id, no_participation, revision) VALUES (?, ?, 0, 1)").run(id, others[0].id);
+    sqlite.prepare("INSERT INTO response_items (tournament_id, school_id, division_id, team_count) VALUES (?, ?, 'division-basketball-male', 1)").run(id, others[0].id);
+    // An inconsistent nonparticipation row and an orphan item are not public participants.
+    sqlite.prepare("INSERT INTO responses (tournament_id, school_id, no_participation, revision) VALUES (?, ?, 1, 1)").run(id, others[1].id);
+    for (const other of others.slice(1)) sqlite.prepare("INSERT INTO response_items (tournament_id, school_id, division_id, team_count) VALUES (?, ?, 'division-basketball-male', 1)").run(id, other.id);
+    const basketball = (data) => data.sports.find((sport) => sport.name === "3x3 농구");
+    listed = await get();
+    const summary = basketball(listed);
+    assert.equal(summary.schoolCount, 2, "both divisions in one school count as one school");
+    assert.equal(summary.teamCount, 3);
+    assert.deepEqual(summary.divisions.map((d) => [d.schoolCount, d.teamCount]), [[2, 2], [1, 1]]);
+    assert.equal(summary.schools.find((s) => s.isOwnSchool).teamCount, 2);
+    assert.equal(summary.schools.find((s) => s.isOwnSchool).schoolName, "검증중학교");
+    assert.deepEqual(Object.keys(summary.schools[0]).sort(), ["isOwnSchool", "schoolId", "schoolName", "selections", "teamCount"].sort());
+    assert.doesNotMatch(JSON.stringify(listed), /password|salt|pepper|revision|updatedAt|adminUsername|authVersion/i);
+    const second = await call("admin/events", { method: "POST", cookie, body: { academicYear: 2027, name: "다른 대회", surveyStart: start, surveyEnd: end } });
+    const otherDivision = sqlite.prepare("SELECT d.id FROM divisions d JOIN sports s ON s.id = d.sport_id WHERE s.tournament_id = ? AND s.name = '3x3 농구' ORDER BY d.display_order LIMIT 1").get(second.data.id).id;
+    sqlite.prepare("INSERT INTO responses (tournament_id, school_id, no_participation, revision) VALUES (?, ?, 0, 1)").run(second.data.id, others[0].id);
+    sqlite.prepare("INSERT INTO response_items (tournament_id, school_id, division_id, team_count) VALUES (?, ?, ?, 1)").run(second.data.id, others[0].id, otherDivision);
+    assert.equal(basketball(await get(`?eventId=${second.data.id}&schoolId=${others[0].id}`)).teamCount, 3);
+    sqlite.prepare("UPDATE schools SET active = 0 WHERE id = ?").run(others[0].id);
+    assert.equal(basketball(await get()).teamCount, 2);
+    sqlite.prepare("UPDATE divisions SET active = 0 WHERE id = 'division-basketball-male'").run();
+    assert.equal(basketball(await get()).teamCount, 1);
+    assert.equal(basketball(await get()).divisions.length, 1);
+    sqlite.prepare("UPDATE sports SET active = 0 WHERE name = '3x3 농구' AND tournament_id = ?").run(id);
+    assert.equal((await get()).sports.some((sport) => sport.name === "3x3 농구"), false);
+    sqlite.prepare("UPDATE schools SET active = 0 WHERE id = 'test-school'").run();
+    assert.equal((await call("school/participants", { cookie: schoolCookie })).data.code, "SCHOOL_INACTIVE");
+    sqlite.prepare("UPDATE schools SET active = 1 WHERE id = 'test-school'").run();
+    sqlite.prepare("UPDATE tournaments SET survey_end = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), id);
+    assert.equal((await call("school/participants", { cookie: schoolCookie })).status, 403);
+    assert.equal((await call(`admin/events/${second.data.id}/activate`, { method: "POST", cookie, body: {} })).status, 200);
+    assert.equal((await call("school/participants", { cookie: schoolCookie })).data.code, "EVENT_CHANGED");
+  } finally { sqlite.close(); }
+});
+
 test("real login/save/readback retains team limits, nonparticipation, logout and deadline protection", async () => {
   const { sqlite, call } = await fixture();
   try {

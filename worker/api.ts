@@ -454,7 +454,7 @@ async function schoolLogin(request: Request, env: Env): Promise<Response> {
   );
 }
 
-async function schoolSession(request: Request, env: Env): Promise<Response> {
+async function requireSchoolContext(request: Request, env: Env) {
   const session = await requireSession(request, env.DB, "school");
   if (!session.schoolId || !session.tournamentId) throw apiError("로그인 정보가 완전하지 않습니다.", 401, "SESSION_INVALID");
   const [current, tournament, school] = await Promise.all([
@@ -468,7 +468,53 @@ async function schoolSession(request: Request, env: Env): Promise<Response> {
   const state = tournamentState(tournament);
   if (!state.open) throw apiError(state.message, 403, "SURVEY_CLOSED");
   if (!school) throw apiError("학교 정보를 확인할 수 없습니다.", 401, "SCHOOL_INACTIVE");
+  return { school, tournament };
+}
+
+async function schoolSession(request: Request, env: Env): Promise<Response> {
+  const { school, tournament } = await requireSchoolContext(request, env);
   return json({ school, tournament, sports: await sportsForTournament(env.DB, tournament.id), survey: await getSurvey(env.DB, tournament.id, school.id) });
+}
+
+async function schoolParticipants(request: Request, env: Env): Promise<Response> {
+  const { school, tournament } = await requireSchoolContext(request, env);
+  const [sports, items] = await Promise.all([
+    sportsForTournament(env.DB, tournament.id),
+    env.DB.prepare(
+      `SELECT s.id AS sportId, d.id AS divisionId, d.name AS divisionName,
+         sc.id AS schoolId, sc.name AS schoolName, ri.team_count AS teamCount
+       FROM response_items ri
+       JOIN responses r ON r.tournament_id = ri.tournament_id AND r.school_id = ri.school_id
+       JOIN schools sc ON sc.id = ri.school_id AND sc.active = 1
+       JOIN divisions d ON d.id = ri.division_id AND d.active = 1
+       JOIN sports s ON s.id = d.sport_id AND s.tournament_id = ri.tournament_id AND s.active = 1
+       WHERE ri.tournament_id = ? AND r.no_participation = 0 AND ri.team_count > 0
+       ORDER BY sc.display_order, sc.name, d.display_order, d.name`,
+    ).bind(tournament.id).all<{ sportId: string; divisionId: string; divisionName: string; schoolId: string; schoolName: string; teamCount: number }>(),
+  ]);
+  return json({
+    tournamentId: tournament.id,
+    queriedAt: new Date().toISOString(),
+    sports: sports.map((sport) => {
+      const rows = items.results.filter((row) => row.sportId === sport.id);
+      const schools = [...new Set(rows.map((row) => row.schoolId))].map((schoolId) => {
+        const selections = rows.filter((row) => row.schoolId === schoolId);
+        return {
+          schoolId, schoolName: selections[0].schoolName, isOwnSchool: schoolId === school.id,
+          teamCount: selections.reduce((sum, row) => sum + Number(row.teamCount), 0),
+          selections: selections.map((row) => ({ divisionId: row.divisionId, divisionName: row.divisionName, teamCount: Number(row.teamCount) })),
+        };
+      });
+      return {
+        id: sport.id, name: sport.name, schools, schoolCount: schools.length,
+        teamCount: schools.reduce((sum, row) => sum + row.teamCount, 0),
+        divisions: sport.divisions.map((division) => {
+          const selected = rows.filter((row) => row.divisionId === division.id);
+          return { id: division.id, name: division.name, schoolCount: selected.length, teamCount: selected.reduce((sum, row) => sum + Number(row.teamCount), 0) };
+        }),
+      };
+    }),
+  });
 }
 
 async function saveSurvey(request: Request, env: Env): Promise<Response> {
@@ -1245,6 +1291,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (request.method === "GET" && path === "bootstrap") return json(await publicBootstrap(env.DB));
     if (request.method === "POST" && path === "school/login") return await schoolLogin(request, env);
     if (request.method === "GET" && path === "school/session") return await schoolSession(request, env);
+    if (request.method === "GET" && path === "school/participants") return await schoolParticipants(request, env);
     if (request.method === "PUT" && path === "school/survey") return await saveSurvey(request, env);
     if (request.method === "POST" && path === "school/logout") return await logout(request, env, "school");
     if (request.method === "POST" && path === "admin/login") return await adminLogin(request, env);

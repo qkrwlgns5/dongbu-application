@@ -285,3 +285,29 @@ test("uses Korean-aware wrapping and keeps compact UI tokens together", async ()
   assert.match(client, /<CardText text=\{content\.description\} \/>/);
   assert.match(client, /<p className="prose-copy">\s*<span className="sentence-unit">관리자 아이디와 비밀번호를 변경할 수 있습니다\.<\/span>/s);
 });
+
+test("teacher participant viewing is independent of application edits and locks the modal background", async () => {
+  const [client, css] = await Promise.all([readFile(new URL("app/survey-app-client.tsx", root), "utf8"), readFile(new URL("app/redesign.css", root), "utf8")]);
+  assert.match(client, /api<ParticipantOverview>\("school\/participants"/);
+  assert.match(client, /<ParticipantSportLink sport=\{sport\}/);
+  assert.match(client, /type="button" className="participant-open-button"/);
+  assert.match(client, /aria-controls="school-participants-dialog"/);
+  assert.match(client, /element\?\.showModal\(\)/);
+  assert.match(client, /position: "fixed", top: `-\$\{scrollY\}px`/);
+  assert.match(client, /trigger\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(client, /controller\.abort\(\)/);
+  assert.match(client, /저장 완료된 신청만 표시됩니다/);
+  assert.match(css, /\.participant-dialog-list \{[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain/);
+  assert.match(css, /\.participant-dialog-stats > div \{[^}]*justify-items: center/);
+});
+
+test("sport headings occupy the former badge column without moving the participation switch", async () => {
+  const [client, css, baseCss] = await Promise.all([readFile(new URL("app/survey-app-client.tsx", root), "utf8"), readFile(new URL("app/redesign.css", root), "utf8"), readFile(new URL("app/globals.css", root), "utf8")]);
+  assert.doesNotMatch(client + css + baseCss, /sport-symbol/);
+  assert.match(client, /<header><div className="sport-name-block"><h2 title=\{sport\.name\}>\{sport\.name\}<\/h2><small lang="en">/);
+  assert.match(client, /"VOLLEYBALL"/);
+  assert.match(client, /"BASKETBALL"/);
+  assert.match(client, /"DODGEBALL"/);
+  assert.match(css, /\.sport-card > header \{[^}]*grid-template-columns: minmax\(0, 1fr\) 83px;/);
+  assert.match(css, /\.sport-name-block \{[^}]*justify-items: start;[^}]*text-align: left;/);
+});
