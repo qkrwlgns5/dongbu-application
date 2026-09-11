@@ -2,9 +2,11 @@ import { normalizeSchoolPasswordInput } from "./school-password.js";
 import { validateTeamLimitConfiguration, validateTeamSelection } from "./team-limits.js";
 import { normalizeEventCardCopy } from "../app/event-card-copy.js";
 import { normalizePageHeaderCopy } from "../app/page-header-copy.js";
+import { MAX_LOGO_BYTES, validateLogoPng, logoObjectKey } from "./logo-image.js";
 
 export interface Env {
   DB: D1Database;
+  LOGO_FILES?: R2Bucket;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
   SCHOOL_PASSWORD_PEPPER?: string;
@@ -22,6 +24,7 @@ interface TournamentRow {
   surveyStart: string;
   cardCopy: string;
   headerCopy: string;
+  logoKey: string;
   surveyEnd: string;
   status: "draft" | "active" | "archived";
 }
@@ -231,7 +234,7 @@ function tournamentState(tournament: TournamentRow | null) {
 async function activeTournament(db: D1Database): Promise<TournamentRow | null> {
   return db.prepare(
     `SELECT t.id, t.academic_year AS academicYear, t.name,
-       t.survey_start AS surveyStart, t.survey_end AS surveyEnd, t.status, t.card_copy AS cardCopy, t.header_copy AS headerCopy
+       t.survey_start AS surveyStart, t.survey_end AS surveyEnd, t.status, t.card_copy AS cardCopy, t.header_copy AS headerCopy, t.logo_key AS logoKey
      FROM app_config c JOIN tournaments t ON t.id = c.active_tournament_id
      WHERE c.id = 1`,
   ).first<TournamentRow>();
@@ -240,7 +243,7 @@ async function activeTournament(db: D1Database): Promise<TournamentRow | null> {
 async function tournamentById(db: D1Database, id: string): Promise<TournamentRow | null> {
   return db.prepare(
     `SELECT id, academic_year AS academicYear, name,
-       survey_start AS surveyStart, survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy
+       survey_start AS surveyStart, survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy, logo_key AS logoKey
      FROM tournaments WHERE id = ?`,
   ).bind(id).first<TournamentRow>();
 }
@@ -820,7 +823,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
   const eventId = new URL(request.url).searchParams.get("eventId");
   const eventsResult = await env.DB.prepare(
     `SELECT id, academic_year AS academicYear, name, survey_start AS surveyStart,
-       survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy FROM tournaments ORDER BY academic_year DESC, created_at DESC`,
+       survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy, logo_key AS logoKey FROM tournaments ORDER BY academic_year DESC, created_at DESC`,
   ).all<TournamentRow>();
   const active = await activeTournament(env.DB);
   const selectedId = eventId && eventsResult.results.some((event) => event.id === eventId)
@@ -963,6 +966,74 @@ async function updateEventCard(request: Request, env: Env, eventId: string): Pro
     auditStatement(env.DB, "UPDATE", "tournament_card", eventId, copy),
   ]);
   return json({ ok: true });
+}
+
+async function readLogoUpload(request: Request): Promise<Uint8Array<ArrayBuffer>> {
+  if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "image/png") {
+    throw apiError("로고는 PNG 이미지로 저장해 주세요.", 415, "UNSUPPORTED_MEDIA_TYPE");
+  }
+  if (Number(request.headers.get("content-length")) > MAX_LOGO_BYTES) throw apiError("로고 이미지가 너무 큽니다.", 413, "PAYLOAD_TOO_LARGE");
+  const reader = request.body?.getReader();
+  if (!reader) throw apiError("로고 이미지를 선택해 주세요.");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_LOGO_BYTES) { await reader.cancel(); throw apiError("로고 이미지가 너무 큽니다.", 413, "PAYLOAD_TOO_LARGE"); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try { await validateLogoPng(bytes); } catch (error) { throw apiError(error instanceof Error ? error.message : "로고 이미지를 확인해 주세요."); }
+  return bytes;
+}
+
+async function updateLogoImage(request: Request, env: Env, eventId: string): Promise<Response> {
+  await requireSession(request, env.DB, "admin");
+  const tournament = await tournamentById(env.DB, eventId);
+  if (!tournament) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  const bucket = env.LOGO_FILES;
+  if (!bucket) throw apiError("로고 저장소에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.", 503, "STORAGE_UNAVAILABLE");
+  const logoKey = request.method === "DELETE" ? "" : crypto.randomUUID();
+  if (logoKey) {
+    const bytes = await readLogoUpload(request);
+    try { await bucket.put(logoObjectKey(eventId, logoKey), bytes, { httpMetadata: { contentType: "image/png" } }); }
+    catch { throw apiError("이미지를 저장하지 못했습니다. 기존 로고는 유지됩니다.", 503, "STORAGE_UNAVAILABLE"); }
+  }
+  try {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE tournaments SET logo_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(logoKey, eventId),
+      auditStatement(env.DB, logoKey ? "UPDATE" : "DELETE", "tournament_logo", eventId, { previousKey: tournament.logoKey, logoKey }),
+    ]);
+  } catch {
+    if (logoKey) await bucket.delete(logoObjectKey(eventId, logoKey)).catch(() => {});
+    throw apiError("로고 설정을 저장하지 못했습니다. 다시 시도해 주세요.", 503, "SAVE_FAILED");
+  }
+  // Remove only the exact previous version after the new pointer is committed.
+  if (tournament.logoKey) await bucket.delete(logoObjectKey(eventId, tournament.logoKey)).catch(() => {});
+  return json({ ok: true, logoKey });
+}
+
+async function getLogoImage(request: Request, env: Env, eventId: string, version: string): Promise<Response> {
+  const tournament = await tournamentById(env.DB, eventId);
+  if (!tournament || !tournament.logoKey || tournament.logoKey !== version) throw apiError("로고 이미지를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  const active = await activeTournament(env.DB);
+  // Draft and archived-event logos must not be exposed via a guessed URL.
+  if (active?.id !== eventId || tournament.status !== "active") await requireSession(request, env.DB, "admin");
+  if (!env.LOGO_FILES) throw apiError("로고 저장소에 연결할 수 없습니다.", 503, "STORAGE_UNAVAILABLE");
+  const object = await env.LOGO_FILES.get(logoObjectKey(eventId, version));
+  if (!object) throw apiError("로고 이미지를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  return new Response(object.body, { headers: {
+    "Content-Type": "image/png", "Content-Length": String(object.size),
+    "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; sandbox", "Cross-Origin-Resource-Policy": "same-origin",
+    "Content-Disposition": "inline; filename=logo.png",
+  } });
 }
 
 async function updatePageHeader(request: Request, env: Env, eventId: string): Promise<Response> {
@@ -1307,6 +1378,10 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (eventCardUpdate && request.method === "PATCH") return await updateEventCard(request, env, decodeURIComponent(eventCardUpdate[1]));
     const pageHeaderUpdate = path.match(/^admin\/events\/([^/]+)\/header-copy$/u);
     if (pageHeaderUpdate && request.method === "PATCH") return await updatePageHeader(request, env, decodeURIComponent(pageHeaderUpdate[1]));
+    const logoUpdate = path.match(/^admin\/events\/([^/]+)\/logo$/u);
+    if (logoUpdate && ["PUT", "DELETE"].includes(request.method)) return await updateLogoImage(request, env, decodeURIComponent(logoUpdate[1]));
+    const logoRead = path.match(/^events\/([^/]+)\/logo\/([a-f0-9-]{36})$/u);
+    if (logoRead && request.method === "GET") return await getLogoImage(request, env, decodeURIComponent(logoRead[1]), logoRead[2]);
     const eventActivate = path.match(/^admin\/events\/([^/]+)\/activate$/u);
     if (eventActivate && request.method === "POST") return await activateEvent(request, env, decodeURIComponent(eventActivate[1]));
     const sportToggle = path.match(/^admin\/sports\/([^/]+)\/active$/u);

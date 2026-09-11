@@ -1,0 +1,1 @@
+ALTER TABLE `tournaments` ADD `logo_key` text DEFAULT '' NOT NULL;

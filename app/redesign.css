@@ -14,6 +14,24 @@ button, input, select, textarea, b, strong { font-weight: 800; }
 .brand-mark[data-length] { line-height: 1; letter-spacing: 0; white-space: nowrap; text-align: center; }
 .brand-mark[data-length="2"] { font-size: 1.125rem; }
 .brand-mark[data-length="3"] { min-width: 44px; font-size: .875rem; }
+.brand > .brand-image { display: block; flex: 0 0 48px; width: 48px; height: 48px; object-fit: contain; object-position: center; }
+.logo-image-editor { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 24px; margin-top: 24px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: #f5f9f8; }
+.logo-image-controls, .logo-image-preview { min-width: 0; }
+.logo-image-controls h3 { margin: 0 0 10px; font-size: 1.05rem; }
+.logo-image-controls p, .logo-image-preview p { font-size: .875rem; line-height: 1.65; margin: 0 0 14px; }
+.logo-file-label { display: grid; gap: 8px; font-size: .875rem; }
+.logo-image-editor input[type="file"] { font: inherit; font-size: .8125rem; height: auto; min-height: 60px; padding: 10px; background: white; overflow: hidden; text-overflow: ellipsis; }
+.logo-image-editor input[type="file"]::file-selector-button { font: inherit; color: var(--deep); border: 1px solid var(--line); border-radius: 8px; background: #f0f5f3; padding: 9px 12px; margin-right: 10px; cursor: pointer; }
+.logo-image-editor small { display: block; color: var(--muted); font-size: .75rem; line-height: 1.65; margin-top: 8px; word-break: keep-all; overflow-wrap: anywhere; }
+.logo-image-controls .logo-file-name { margin-top: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logo-image-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.logo-image-actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 0; max-width: 100%; padding: 10px 14px; text-align: center; font-size: .8125rem; white-space: nowrap; }
+.logo-image-preview { align-self: center; padding: 20px; background: white; border: 1px solid var(--line); border-radius: 12px; }
+.logo-image-preview .brand { width: 100%; }
+.logo-image-editor .logo-save-notice { margin-top: 14px; color: var(--deep); }
+.logo-image-editor .form-error { margin-top: 14px; }
+@media (max-width: 800px) { .logo-image-editor { grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 18px; } }
+@media (max-width: 600px) { .brand > .brand-image { flex-basis: 40px; width: 40px; height: 40px; } }
 .brand-bar { gap: 18px; padding-block: 14px; }
 .header-right { flex-shrink: 0; }
 .brand-bar { width: min(1280px, calc(100% - 80px)); min-height: 90px; }

@@ -43,6 +43,13 @@
       "when": 1789098789683,
       "tag": "0007_page_header_copy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789128317885,
+      "tag": "0008_logo_image",
+      "breakpoints": true
     }
   ]
 }

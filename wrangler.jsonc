@@ -11,6 +11,7 @@
       "migrations_dir": "drizzle"
     }
   ],
+  "r2_buckets": [{ "binding": "LOGO_FILES", "bucket_name": "dongbu-application-assets" }],
   "observability": {
     "enabled": true
   }

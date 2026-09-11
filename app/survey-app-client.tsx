@@ -13,6 +13,7 @@ type Tournament = {
   surveyStart: string;
   cardCopy: string;
   headerCopy: string;
+  logoKey?: string;
   surveyEnd: string;
   status: "draft" | "active" | "archived";
 };
@@ -177,12 +178,17 @@ function CardText({ text }: { text: string }) {
   return <>{text.split("\n").map((line, index) => <span className="card-copy-line" key={index}>{line ? <SentenceFlow text={line} /> : <br />}</span>)}</>;
 }
 
-function Brand({ admin = false, tournament, copy, preview = false }: { admin?: boolean; tournament?: Tournament | null; copy?: Record<string, string>; preview?: boolean }) {
+function Brand({ admin = false, tournament, copy, preview = false, imageUrl }: { admin?: boolean; tournament?: Tournament | null; copy?: Record<string, string>; preview?: boolean; imageUrl?: string | null }) {
   const content = pageHeaderCopy(tournament, copy);
+  const savedImage = tournament?.logoKey ? `/api/events/${encodeURIComponent(tournament.id)}/logo/${encodeURIComponent(tournament.logoKey)}` : "";
+  const src = imageUrl === undefined ? savedImage : imageUrl;
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const Container = preview ? "div" : "a";
   return (
     <Container className="brand" href={preview ? undefined : admin ? "/admin" : "/"} aria-label={preview ? undefined : "참가 신청 처음으로"}>
-      <span className="brand-mark" data-length={[...content.logoText.normalize("NFC")].length} aria-hidden="true">{content.logoText}</span>
+      {src && src !== failedSrc
+        ? <img className="brand-image" src={src} alt="" width={48} height={48} onError={() => setFailedSrc(src)} />
+        : <span className="brand-mark" data-length={[...content.logoText.normalize("NFC")].length} aria-hidden="true">{content.logoText}</span>}
       <span><SentenceFlow text={content.brandName} />{(admin || content.brandSubtitle) && <b><SentenceFlow text={admin ? "참가 신청 관리" : content.brandSubtitle} /></b>}</span>
     </Container>
   );
@@ -621,18 +627,104 @@ function EventCardEditor({ tournament, sports, schoolCount, busy, onSave }: { to
   return <article className="settings-card event-card-editor"><header><span>04</span><div><p>LOGIN PAGE CARD</p><h2>메인페이지 안내 카드 문구</h2></div></header><p>왼쪽 대회 안내 카드의 문구를 수정할 수 있습니다. 모든 문구는 카드 안에서 좌우 중앙정렬됩니다.</p><div className="card-editor-layout"><form onSubmit={(event) => { event.preventDefault(); void onSave(copy); }} aria-busy={busy}><div className="card-editor-fields">{EVENT_CARD_FIELDS.map((field) => <label key={field.key} className={["title", "subtitle", "description", "target", "footer"].includes(field.key) ? "wide" : ""}><span>{field.label}</span>{["title", "subtitle", "description"].includes(field.key) ? <textarea value={copy[field.key] ?? ""} maxLength={field.max} rows={2} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} /> : <input value={copy[field.key] ?? ""} maxLength={field.max} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} />}<small>{field.max}자 이내 · 비워 두면 숨김</small></label>)}</div><p className="card-editor-note"><SentenceFlow text="신청 기간·종목·학교 수는 실제 대회 설정에 따라 자동으로 표시됩니다. 아래 버튼으로 저장해야 교사 화면에 반영됩니다." /></p><footer><button type="button" className="outline-button" disabled={busy} onClick={resetDefaults}>기본 문구 불러오기</button><button type="submit" className="solid-button" disabled={busy}>{busy ? "저장 중…" : "안내 카드 문구 저장"}</button></footer></form><div className="card-editor-preview"><p>교사 화면 미리보기 · 저장 전</p><EventCard tournament={tournament} sports={sports} schoolCount={schoolCount} copy={copy} /></div></div></article>;
 }
 
-function PageHeaderEditor({ tournament, busy, onSave }: { tournament: Tournament; busy: boolean; onSave: (copy: Record<string, string>) => Promise<void> }) {
+async function prepareLogoImage(file: File): Promise<{ blob: Blob; preview: string }> {
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type.toLowerCase())) throw new Error("PNG·JPG·WebP 사진을 선택해 주세요.");
+  if (!file.size || file.size > 5 * 1024 * 1024) throw new Error("5MB 이하의 사진을 선택해 주세요.");
+  const readDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("사진을 읽지 못했습니다. 다시 선택해 주세요."));
+    reader.readAsDataURL(blob);
+  });
+  const source = await readDataUrl(file);
+  const picture = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("열 수 없는 사진입니다. 다른 이미지 파일을 선택해 주세요."));
+    img.src = source;
+  });
+  if (!picture.naturalWidth || !picture.naturalHeight || picture.naturalWidth * picture.naturalHeight > 40_000_000) throw new Error("사진의 해상도가 너무 큽니다. 크기를 줄인 뒤 다시 선택해 주세요.");
+  const scale = Math.min(1, 512 / Math.max(picture.naturalWidth, picture.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(picture.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(picture.naturalHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("이 브라우저에서 사진을 처리할 수 없습니다.");
+  context.drawImage(picture, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("사진 변환에 실패했습니다.")), "image/png"));
+  if (blob.size > 2 * 1024 * 1024) throw new Error("사진의 용량을 줄인 뒤 다시 선택해 주세요.");
+  return { blob, preview: await readDataUrl(blob) };
+}
+
+function LogoImageEditor({ tournament, busy, onSave }: { tournament: Tournament; busy: boolean; onSave: (image: Blob | null) => Promise<void> }) {
+  const [draft, setDraft] = useState<{ blob: Blob; preview: string; name: string } | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selectionRef = useRef(0);
+  useEffect(() => () => { selectionRef.current += 1; }, []);
+  const disabled = busy || preparing || saving;
+
+  async function choose(file?: File) {
+    if (!file) return;
+    const selection = ++selectionRef.current;
+    setPreparing(true); setError(""); setNotice(""); setDraft(null);
+    try {
+      const prepared = await prepareLogoImage(file);
+      if (selection === selectionRef.current) setDraft({ ...prepared, name: file.name });
+    } catch (reason) {
+      if (selection === selectionRef.current) setError(reason instanceof Error ? reason.message : "사진을 준비하지 못했습니다.");
+    } finally {
+      if (selection === selectionRef.current) { setPreparing(false); if (inputRef.current) inputRef.current.value = ""; }
+    }
+  }
+
+  async function save(remove = false) {
+    if (disabled || (!remove && !draft)) return;
+    if (remove && !window.confirm("저장된 로고 이미지를 삭제하고 문자 로고로 되돌릴까요?")) return;
+    setSaving(true); setError(""); setNotice("");
+    try {
+      await onSave(remove ? null : draft!.blob);
+      setDraft(null);
+      setNotice(remove ? "로고 이미지를 삭제했습니다. 기존 문자 로고가 표시됩니다." : "로고 이미지를 저장했습니다. 현재 대회라면 메인페이지에 반영됩니다.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "로고를 저장하지 못했습니다."); }
+    finally { setSaving(false); }
+  }
+
+  return <section className="logo-image-editor" aria-label="상단 로고 이미지 설정" aria-busy={disabled}>
+    <div className="logo-image-controls">
+      <h3>로고 이미지</h3>
+      <p><SentenceFlow text="사진을 선택한 뒤 ‘로고 이미지 저장’을 누르세요. 이미지가 없으면 아래에 설정한 문자 로고가 표시됩니다." /></p>
+      <label className="logo-file-label"><span>이미지 파일 선택</span><input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" disabled={disabled} aria-describedby={`logo-help-${tournament.id}`} onChange={(event) => { void choose(event.target.files?.[0]); }} /></label>
+      <small id={`logo-help-${tournament.id}`}>PNG·JPG·WebP · 최대 5MB · 비율 유지, 최대 512px로 자동 최적화</small>
+      {draft && <p className="logo-file-name" title={draft.name}>선택한 파일: {draft.name}</p>}
+      <div className="logo-image-actions">
+        <button type="button" className="solid-button" disabled={disabled || !draft} onClick={() => { void save(); }}>{preparing ? "사진 준비 중…" : saving ? "처리 중…" : "로고 이미지 저장"}</button>
+        {draft && <button type="button" className="outline-button" disabled={disabled} onClick={() => { setDraft(null); setError(""); setNotice(""); }}>선택 취소</button>}
+        {tournament.logoKey && <button type="button" className="outline-button" disabled={disabled} onClick={() => { void save(true); }}>이미지 삭제</button>}
+      </div>
+      {error && <p className="form-error" role="alert"><SentenceFlow text={error} /></p>}
+      {notice && <p className="logo-save-notice" role="status"><SentenceFlow text={notice} /></p>}
+    </div>
+    <div className="logo-image-preview"><p>{draft ? "선택한 이미지 · 저장 전" : "현재 저장된 로고"}</p><Brand tournament={tournament} imageUrl={draft?.preview} preview /><small>메인페이지 표시 예시 · 사진 전체를 비율에 맞춰 표시합니다.</small></div>
+  </section>;
+}
+
+function PageHeaderEditor({ tournament, busy, onSave, onSaveLogo }: { tournament: Tournament; busy: boolean; onSave: (copy: Record<string, string>) => Promise<void>; onSaveLogo: (image: Blob | null) => Promise<void> }) {
   const [copy, setCopy] = useState<Record<string, string>>(() => pageHeaderCopy(tournament));
   return <article className="settings-card page-header-editor">
     <header><span>03</span><div><p>LOGIN PAGE HEADER</p><h2>메인페이지 상단 로고·제목</h2></div></header>
     <p><SentenceFlow text="메인페이지 맨 위의 로고와 기관명, 학년도 배지 옆 문구, 두 줄 제목을 수정합니다. 선택한 대회에만 저장됩니다." /></p>
+    <LogoImageEditor key={tournament.id} tournament={tournament} busy={busy} onSave={onSaveLogo} />
     <form onSubmit={(event) => { event.preventDefault(); void onSave(copy); }} aria-busy={busy}>
       <div className="card-editor-fields">{PAGE_HEADER_FIELDS.map((field) => <label key={field.key}>
         <span>{field.label}{field.required && " · 필수"}</span>
         {field.multiline
           ? <textarea value={copy[field.key] ?? ""} maxLength={field.max} rows={2} required={field.required} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} />
           : <input value={copy[field.key] ?? ""} maxLength={field.max} required={field.required} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} />}
-        <small>{field.key === "logoText" ? "한글·영문·숫자 1~3자 · 공백 없이" : `${field.max}자 이내${field.required ? "" : " · 비워 두면 숨김"}`}</small>
+        <small>{field.key === "logoText" ? "이미지가 없을 때 표시 · 한글·영문·숫자 1~3자" : `${field.max}자 이내${field.required ? "" : " · 비워 두면 숨김"}`}</small>
       </label>)}</div>
       <p className="card-editor-note"><SentenceFlow text={`학년도 배지는 현재 ${tournament.academicYear}학년도입니다. 위쪽 ‘대회 정보·신청 기간’의 학년도를 변경하고 저장하면 함께 바뀝니다. 상단 문구는 아래 저장 버튼을 눌러야 반영됩니다.`} /></p>
       <section className="page-header-preview redesigned-login" aria-label="메인페이지 상단 미리보기">
@@ -1028,6 +1120,18 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
     }, "상단 로고·제목을 저장했습니다. 현재 대회인 경우 교사 화면을 새로 열거나 새로고침하면 반영됩니다.");
   }
 
+  async function saveLogoImage(image: Blob | null) {
+    if (!selected) throw new Error("대회를 먼저 선택해 주세요.");
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await api(`admin/events/${encodeURIComponent(selected.id)}/logo`, image
+        ? { method: "PUT", headers: { "Content-Type": "image/png" }, body: image }
+        : { method: "DELETE" });
+      try { await refresh(selected.id); }
+      catch { throw new Error("로고 설정은 저장되었습니다. 최신 화면을 불러오려면 새로고침해 주세요."); }
+    } finally { setBusy(false); }
+  }
+
   async function saveCardCopy(copy: Record<string, string>) {
     if (!selected) return;
     await run(async () => {
@@ -1103,7 +1207,7 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
       </> : tab === "event" ? <section className="admin-settings-grid">
         <article className="settings-card"><header><span>01</span><div><p>CURRENT EVENT</p><h2>대회 정보·신청 기간</h2></div></header><form key={selected.id} onSubmit={updateSelectedEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear} required /></label><label><span>대회 상태</span><input value={selected.status === "active" ? "현재 교사 화면에 공개 중" : "임시저장 · 비공개"} disabled /></label></div><label><span>대회명</span><input name="name" defaultValue={selected.name} required /></label><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={seoulInputValue(selected.surveyStart)} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(selected.surveyEnd)} required /></label></div><footer><button type="button" className="outline-button" disabled={busy || selected.status === "active"} onClick={() => void activateSelected()}>{selected.status === "active" ? "현재 대회" : "이 대회를 현재 대회로 설정"}</button><button className="solid-button" disabled={busy}>변경 사항 저장</button></footer></form></article>
         <article className="settings-card new-event-card"><header><span>02</span><div><p>NEW EVENT</p><h2>새 대회 추가</h2></div></header><p>새 대회에는 배구·3x3 농구·피구가 기본 종목으로 추가됩니다.</p><form onSubmit={createNewEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear + 1} required /></label><label><span>대회명</span><input name="name" placeholder="예: 동부학교스포츠클럽 전반기 대회" required /></label></div><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={newStart} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(newEndDate)} required /></label></div><button className="solid-button" disabled={busy}>+ 새 대회 추가</button></form></article>
-        <PageHeaderEditor key={`header-${selected.id}-${selected.headerCopy}`} tournament={selected} busy={busy} onSave={saveHeaderCopy} />
+        <PageHeaderEditor key={`header-${selected.id}-${selected.headerCopy}`} tournament={selected} busy={busy} onSave={saveHeaderCopy} onSaveLogo={saveLogoImage} />
         <EventCardEditor key={`card-${selected.id}-${selected.cardCopy}-${selected.academicYear}-${selected.name}`} tournament={selected} sports={dashboard.sports} schoolCount={dashboard.rows.length} busy={busy} onSave={saveCardCopy} />
       </section> : <section className="admin-settings-grid sports-management">
         <article className="settings-card"><header><span>01</span><div><p>SPORTS LIST</p><h2 title={selected.name}>{selected.name} 종목</h2></div></header><p className="prose-copy"><span className="sentence-unit">종별과 팀 수 기준을 수정할 수 있습니다.</span>{" "}<span className="sentence-unit">신청 기록이 있는 종목은 삭제할 수 없으며 신청 기간 중에는 비활성화도 제한됩니다.</span></p><div className="managed-sports">{dashboard.sports.map((sport) => <section className={`managed-sport-card${sport.active ? "" : " inactive"}`} key={sport.id} aria-labelledby={`sport-name-${sport.id}`}>

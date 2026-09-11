@@ -6,6 +6,7 @@ import { handleApi } from "./api";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  LOGO_FILES?: R2Bucket;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
   SCHOOL_PASSWORD_PEPPER?: string;
