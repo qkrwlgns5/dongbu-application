@@ -1,5 +1,6 @@
 import { normalizeSchoolPasswordInput } from "./school-password.js";
 import { validateTeamLimitConfiguration, validateTeamSelection } from "./team-limits.js";
+import { normalizeEventCardCopy } from "../app/event-card-copy.js";
 
 export interface Env {
   DB: D1Database;
@@ -18,6 +19,7 @@ interface TournamentRow {
   academicYear: number;
   name: string;
   surveyStart: string;
+  cardCopy: string;
   surveyEnd: string;
   status: "draft" | "active" | "archived";
 }
@@ -137,7 +139,7 @@ function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
-function fromBase64Url(value: string): Uint8Array {
+function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
   const binary = atob(normalized + "=".repeat((4 - (normalized.length % 4)) % 4));
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
@@ -227,7 +229,7 @@ function tournamentState(tournament: TournamentRow | null) {
 async function activeTournament(db: D1Database): Promise<TournamentRow | null> {
   return db.prepare(
     `SELECT t.id, t.academic_year AS academicYear, t.name,
-       t.survey_start AS surveyStart, t.survey_end AS surveyEnd, t.status
+       t.survey_start AS surveyStart, t.survey_end AS surveyEnd, t.status, t.card_copy AS cardCopy
      FROM app_config c JOIN tournaments t ON t.id = c.active_tournament_id
      WHERE c.id = 1`,
   ).first<TournamentRow>();
@@ -236,7 +238,7 @@ async function activeTournament(db: D1Database): Promise<TournamentRow | null> {
 async function tournamentById(db: D1Database, id: string): Promise<TournamentRow | null> {
   return db.prepare(
     `SELECT id, academic_year AS academicYear, name,
-       survey_start AS surveyStart, survey_end AS surveyEnd, status
+       survey_start AS surveyStart, survey_end AS surveyEnd, status, card_copy AS cardCopy
      FROM tournaments WHERE id = ?`,
   ).bind(id).first<TournamentRow>();
 }
@@ -770,7 +772,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
   const eventId = new URL(request.url).searchParams.get("eventId");
   const eventsResult = await env.DB.prepare(
     `SELECT id, academic_year AS academicYear, name, survey_start AS surveyStart,
-       survey_end AS surveyEnd, status FROM tournaments ORDER BY academic_year DESC, created_at DESC`,
+       survey_end AS surveyEnd, status, card_copy AS cardCopy FROM tournaments ORDER BY academic_year DESC, created_at DESC`,
   ).all<TournamentRow>();
   const active = await activeTournament(env.DB);
   const selectedId = eventId && eventsResult.results.some((event) => event.id === eventId)
@@ -898,6 +900,20 @@ async function updateEvent(request: Request, env: Env, eventId: string): Promise
        updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
   ).bind(payload.academicYear, payload.name, payload.surveyStart, payload.surveyEnd, eventId).run();
   await audit(env.DB, "UPDATE", "tournament", eventId, payload);
+  return json({ ok: true });
+}
+
+async function updateEventCard(request: Request, env: Env, eventId: string): Promise<Response> {
+  await requireSession(request, env.DB, "admin");
+  if (!await tournamentById(env.DB, eventId)) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  const body = await readJson<{ cardCopy?: unknown }>(request);
+  let copy;
+  try { copy = normalizeEventCardCopy(body?.cardCopy); }
+  catch (error) { throw apiError(error instanceof Error ? error.message : "안내 문구를 확인해 주세요."); }
+  await env.DB.batch([
+    env.DB.prepare("UPDATE tournaments SET card_copy = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(JSON.stringify(copy), eventId),
+    auditStatement(env.DB, "UPDATE", "tournament_card", eventId, copy),
+  ]);
   return json({ ok: true });
 }
 
@@ -1224,6 +1240,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
 
     const eventUpdate = path.match(/^admin\/events\/([^/]+)$/u);
     if (eventUpdate && request.method === "PATCH") return await updateEvent(request, env, decodeURIComponent(eventUpdate[1]));
+    const eventCardUpdate = path.match(/^admin\/events\/([^/]+)\/card-copy$/u);
+    if (eventCardUpdate && request.method === "PATCH") return await updateEventCard(request, env, decodeURIComponent(eventCardUpdate[1]));
     const eventActivate = path.match(/^admin\/events\/([^/]+)\/activate$/u);
     if (eventActivate && request.method === "POST") return await activateEvent(request, env, decodeURIComponent(eventActivate[1]));
     const sportToggle = path.match(/^admin\/sports\/([^/]+)\/active$/u);

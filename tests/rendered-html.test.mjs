@@ -60,11 +60,11 @@ test("uses reliable route links and the revised two-line application title", asy
   assert.match(client, /<span className="academic-year-badge">\{bootstrap\.tournament\.academicYear\}학년도<\/span>/);
   assert.match(client, /<span className="intro-title-primary">동부교육지원청 학교스포츠클럽대회<\/span>/);
   assert.match(client, /<span className="intro-title-secondary">참가 신청<\/span>/);
-  assert.match(client, /<strong title=\{bootstrap\.tournament\?\.name \?\? "대회 준비 중"\}>/);
+  assert.match(client, /<EventCard tournament=\{bootstrap\.tournament\} sports=\{bootstrap\.sports\} schoolCount=\{bootstrap\.schools\.length\}/);
   assert.match(client, /className="school-name">\{school\.name\}<\/span>/);
-  assert.match(client, /<b title=\{selectedName\}>\{selectedName\}<\/b>/);
+  assert.match(client, /<b title=\{selectedName\}>✓ \{selectedName\}<\/b>/);
   assert.match(client, /aria-checked=\{selected\} title=\{division\.name\}/);
-  assert.match(client, /<p className="eyebrow" lang="en"><span aria-hidden="true" \/> DONG-BU SCHOOL SPORTS<\/p>/);
+  assert.match(client, /<p className="eyebrow" lang="en">DONG-BU SCHOOL SPORTS<\/p>/);
   assert.doesNotMatch(client, /academicYear \?\? ""\} DONG-BU SCHOOL SPORTS/);
 });
 
@@ -107,7 +107,9 @@ test("separates school-wide and per-division team limits in the application UI",
     readFile(new URL("drizzle/0005_team_limit_guards.sql", root), "utf8"),
   ]);
   assert.match(client, /const showTeamCountControl = selected && \(sport\.maxTeamsPerDivision >= 2 \|\| currentCount > sport\.maxTeamsPerDivision\)/);
-  assert.match(client, /showTeamCountControl && <label><span>참가팀 수<\/span>/);
+  assert.match(client, /showTeamCountControl && \(sport\.maxTeamsPerDivision <= 3 && !currentNeedsCorrection/);
+  assert.match(client, /className="division-teams" role="group"/);
+  assert.match(client, /<label><span>참가팀 수<\/span><select aria-label=/);
   assert.match(client, /sport\.maxTeamsPerSchool - otherDivisionTotal/);
   assert.match(client, /length: selectableMaximum/);
   assert.match(client, /<p className="team-limit">/);
@@ -158,10 +160,12 @@ test("lets an authenticated administrator securely change login credentials", as
 });
 
 test("summarizes division teams and opens a scroll-locked participant dialog", async () => {
-  const [client, styles] = await Promise.all([
+  const [client, originalStyles, redesignStyles] = await Promise.all([
     readFile(new URL("app/survey-app-client.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("app/redesign.css", root), "utf8"),
   ]);
+  const styles = originalStyles + redesignStyles;
 
   assert.match(client, /const \[selectedDivision, setSelectedDivision\]/);
   assert.match(client, /const divisionMetrics = sport\.divisions\.map/);
@@ -174,8 +178,8 @@ test("summarizes division teams and opens a scroll-locked participant dialog", a
   assert.match(client, /className="division-participant-list"/);
   assert.match(client, /focus\(\{ preventScroll: true \}\)/);
 
-  assert.match(styles, /\.results-panel table \{[^}]*font-size: 12px/s);
-  assert.match(styles, /\.results-panel td:nth-child\(2\) b \{[^}]*font-size: 13px/s);
+  assert.match(redesignStyles, /\.results-panel table \{[^}]*font-size: 14px/s);
+  assert.match(redesignStyles, /\.results-panel td:nth-child\(2\) b \{[^}]*font-size: 15px/s);
   assert.match(styles, /\.division-participant-list \{[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain/s);
 });
 
@@ -222,7 +226,7 @@ test("uses Korean-aware wrapping and keeps compact UI tokens together", async ()
   assert.match(styles, /\.team-limit \{[^}]*flex-wrap: nowrap/s);
   assert.doesNotMatch(styles, /\.intro-copy > p br \{ display: none; \}/);
 
-  assert.match(client, /className="intro-description prose-copy"/);
+  assert.match(client, /function CardText/);
   assert.match(client, /className="period-date"/);
   assert.match(client, /className="school-name"/);
   assert.match(client, /className="team-limit-maximum"/);
@@ -233,8 +237,8 @@ test("uses Korean-aware wrapping and keeps compact UI tokens together", async ()
   assert.match(client, /new Intl\.Segmenter\("ko", \{ granularity: "sentence" \}\)/);
   assert.match(client, /<SentenceFlow text=\{error\} \/>/);
   assert.match(client, /<SentenceFlow text=\{notice\} \/>/);
-  assert.match(client, /className="intro-description prose-copy"/);
-  assert.match(client, /<span className="sentence-unit">학교별 참가 종목과 종별을 신청해 주세요\.<\/span>/);
-  assert.match(client, /<span className="sentence-unit">저장한 내용은 같은 학교로 다시 로그인해 확인·수정할 수 있습니다\.<\/span>/);
+  assert.match(client, /className="card-copy-line"/);
+  assert.match(client, /<CardText text=\{content\.title\} \/>/);
+  assert.match(client, /<CardText text=\{content\.description\} \/>/);
   assert.match(client, /<p className="prose-copy">\s*<span className="sentence-unit">관리자 아이디와 비밀번호를 변경할 수 있습니다\.<\/span>/s);
 });

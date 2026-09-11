@@ -1,0 +1,1 @@
+ALTER TABLE `tournaments` ADD `card_copy` text DEFAULT '{}' NOT NULL;

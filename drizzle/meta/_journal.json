@@ -29,6 +29,13 @@
       "when": 1788308794082,
       "tag": "0004_new_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789095821697,
+      "tag": "0006_event_card_copy",
+      "breakpoints": true
     }
   ]
 }
