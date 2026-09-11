@@ -4,6 +4,7 @@
 
 import { FormEvent, Fragment, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EVENT_CARD_FIELDS, eventCardCopy, formatEventCardDate } from "./event-card-copy.js";
+import { PAGE_HEADER_FIELDS, pageHeaderCopy } from "./page-header-copy.js";
 
 type Tournament = {
   id: string;
@@ -11,6 +12,7 @@ type Tournament = {
   name: string;
   surveyStart: string;
   cardCopy: string;
+  headerCopy: string;
   surveyEnd: string;
   status: "draft" | "active" | "archived";
 };
@@ -165,13 +167,24 @@ function CardText({ text }: { text: string }) {
   return <>{text.split("\n").map((line, index) => <span className="card-copy-line" key={index}>{line ? <SentenceFlow text={line} /> : <br />}</span>)}</>;
 }
 
-function Brand({ admin = false }: { admin?: boolean }) {
+function Brand({ admin = false, tournament, copy, preview = false }: { admin?: boolean; tournament?: Tournament | null; copy?: Record<string, string>; preview?: boolean }) {
+  const content = pageHeaderCopy(tournament, copy);
+  const Container = preview ? "div" : "a";
   return (
-    <a className="brand" href={admin ? "/admin" : "/"} aria-label="참가 신청 처음으로">
-      <span className="brand-mark" aria-hidden="true">D</span>
-      <span>동부교육지원청 <b>{admin ? "참가 신청 관리" : "학교스포츠클럽"}</b></span>
-    </a>
+    <Container className="brand" href={preview ? undefined : admin ? "/admin" : "/"} aria-label={preview ? undefined : "참가 신청 처음으로"}>
+      <span className="brand-mark" data-length={[...content.logoText.normalize("NFC")].length} aria-hidden="true">{content.logoText}</span>
+      <span><SentenceFlow text={content.brandName} />{(admin || content.brandSubtitle) && <b><SentenceFlow text={admin ? "참가 신청 관리" : content.brandSubtitle} /></b>}</span>
+    </Container>
   );
+}
+
+function ApplicationIntro({ tournament, copy, preview = false }: { tournament: Tournament | null; copy?: Record<string, string>; preview?: boolean }) {
+  const content = pageHeaderCopy(tournament, copy);
+  const Heading = preview ? "h3" : "h1";
+  return <div className="intro-copy">
+    <div className="year-heading">{tournament && <span className="academic-year-badge">{tournament.academicYear}학년도</span>}{content.eyebrow && <p className="eyebrow">{content.eyebrow}</p>}</div>
+    <Heading className="application-heading"><span className="intro-title-primary"><CardText text={content.titlePrimary} /></span>{content.titleSecondary && <span className="intro-title-secondary"><CardText text={content.titleSecondary} /></span>}</Heading>
+  </div>;
 }
 
 function PageLoader({ message = "참가 신청 정보를 불러오고 있습니다." }: { message?: string }) {
@@ -306,9 +319,9 @@ function SchoolLogin({ bootstrap, onLogin }: { bootstrap: Bootstrap; onLogin: (s
 
   return (
     <main className="site-shell redesigned-login">
-      <header className="brand-bar"><Brand /><div className="header-right"><span>학교별 온라인 참가 신청</span><a className="admin-link" href="/admin">관리자</a></div></header>
+      <header className="brand-bar"><Brand tournament={bootstrap.tournament} /><div className="header-right"><span>학교별 온라인 참가 신청</span><a className="admin-link" href="/admin">관리자</a></div></header>
       <section className="login-stage" id="top">
-        <div className="page-intro"><div className="intro-copy"><div className="year-heading">{bootstrap.tournament && <span className="academic-year-badge">{bootstrap.tournament.academicYear}학년도</span>}<p className="eyebrow" lang="en">DONG-BU SCHOOL SPORTS</p></div><h1><span className="intro-title-primary">동부교육지원청 학교스포츠클럽대회</span><span className="intro-title-secondary">참가 신청</span></h1></div><ApplicationSteps current={1} /></div>
+        <div className="page-intro"><ApplicationIntro tournament={bootstrap.tournament} /><ApplicationSteps current={1} /></div>
         <div className="login-layout"><EventCard tournament={bootstrap.tournament} sports={bootstrap.sports} schoolCount={bootstrap.schools.length} />
           <section className="login-card school-login-card" aria-labelledby="login-title">
             <div className="school-selection-heading"><div><h2 id="login-title"><UiIcon name="school" />우리 학교 선택</h2><p>학교를 선택한 뒤 기관번호로 로그인해 주세요.</p></div><span>전체 <b>{bootstrap.schools.length}</b>개교</span></div>
@@ -508,7 +521,31 @@ function EventCardEditor({ tournament, sports, schoolCount, busy, onSave }: { to
   function resetDefaults() {
     setCopy(eventCardCopy({ ...tournament, cardCopy: "{}" }));
   }
-  return <article className="settings-card event-card-editor"><header><span>03</span><div><p>LOGIN PAGE CARD</p><h2>메인페이지 안내 카드 문구</h2></div></header><p>왼쪽 대회 안내 카드의 문구를 수정할 수 있습니다. 모든 문구는 카드 안에서 좌우 중앙정렬됩니다.</p><div className="card-editor-layout"><form onSubmit={(event) => { event.preventDefault(); void onSave(copy); }} aria-busy={busy}><div className="card-editor-fields">{EVENT_CARD_FIELDS.map((field) => <label key={field.key} className={["title", "subtitle", "description", "target", "footer"].includes(field.key) ? "wide" : ""}><span>{field.label}</span>{["title", "subtitle", "description"].includes(field.key) ? <textarea value={copy[field.key] ?? ""} maxLength={field.max} rows={2} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} /> : <input value={copy[field.key] ?? ""} maxLength={field.max} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} />}<small>{field.max}자 이내 · 비워 두면 숨김</small></label>)}</div><p className="card-editor-note"><SentenceFlow text="신청 기간·종목·학교 수는 실제 대회 설정에 따라 자동으로 표시됩니다. 아래 버튼으로 저장해야 교사 화면에 반영됩니다." /></p><footer><button type="button" className="outline-button" disabled={busy} onClick={resetDefaults}>기본 문구 불러오기</button><button type="submit" className="solid-button" disabled={busy}>{busy ? "저장 중…" : "안내 카드 문구 저장"}</button></footer></form><div className="card-editor-preview"><p>교사 화면 미리보기 · 저장 전</p><EventCard tournament={tournament} sports={sports} schoolCount={schoolCount} copy={copy} /></div></div></article>;
+  return <article className="settings-card event-card-editor"><header><span>04</span><div><p>LOGIN PAGE CARD</p><h2>메인페이지 안내 카드 문구</h2></div></header><p>왼쪽 대회 안내 카드의 문구를 수정할 수 있습니다. 모든 문구는 카드 안에서 좌우 중앙정렬됩니다.</p><div className="card-editor-layout"><form onSubmit={(event) => { event.preventDefault(); void onSave(copy); }} aria-busy={busy}><div className="card-editor-fields">{EVENT_CARD_FIELDS.map((field) => <label key={field.key} className={["title", "subtitle", "description", "target", "footer"].includes(field.key) ? "wide" : ""}><span>{field.label}</span>{["title", "subtitle", "description"].includes(field.key) ? <textarea value={copy[field.key] ?? ""} maxLength={field.max} rows={2} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} /> : <input value={copy[field.key] ?? ""} maxLength={field.max} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} />}<small>{field.max}자 이내 · 비워 두면 숨김</small></label>)}</div><p className="card-editor-note"><SentenceFlow text="신청 기간·종목·학교 수는 실제 대회 설정에 따라 자동으로 표시됩니다. 아래 버튼으로 저장해야 교사 화면에 반영됩니다." /></p><footer><button type="button" className="outline-button" disabled={busy} onClick={resetDefaults}>기본 문구 불러오기</button><button type="submit" className="solid-button" disabled={busy}>{busy ? "저장 중…" : "안내 카드 문구 저장"}</button></footer></form><div className="card-editor-preview"><p>교사 화면 미리보기 · 저장 전</p><EventCard tournament={tournament} sports={sports} schoolCount={schoolCount} copy={copy} /></div></div></article>;
+}
+
+function PageHeaderEditor({ tournament, busy, onSave }: { tournament: Tournament; busy: boolean; onSave: (copy: Record<string, string>) => Promise<void> }) {
+  const [copy, setCopy] = useState<Record<string, string>>(() => pageHeaderCopy(tournament));
+  return <article className="settings-card page-header-editor">
+    <header><span>03</span><div><p>LOGIN PAGE HEADER</p><h2>메인페이지 상단 로고·제목</h2></div></header>
+    <p><SentenceFlow text="메인페이지 맨 위의 로고와 기관명, 학년도 배지 옆 문구, 두 줄 제목을 수정합니다. 선택한 대회에만 저장됩니다." /></p>
+    <form onSubmit={(event) => { event.preventDefault(); void onSave(copy); }} aria-busy={busy}>
+      <div className="card-editor-fields">{PAGE_HEADER_FIELDS.map((field) => <label key={field.key}>
+        <span>{field.label}{field.required && " · 필수"}</span>
+        {field.multiline
+          ? <textarea value={copy[field.key] ?? ""} maxLength={field.max} rows={2} required={field.required} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} />
+          : <input value={copy[field.key] ?? ""} maxLength={field.max} required={field.required} disabled={busy} onChange={(event) => setCopy((current) => ({ ...current, [field.key]: event.target.value }))} />}
+        <small>{field.key === "logoText" ? "한글·영문·숫자 1~3자 · 공백 없이" : `${field.max}자 이내${field.required ? "" : " · 비워 두면 숨김"}`}</small>
+      </label>)}</div>
+      <p className="card-editor-note"><SentenceFlow text={`학년도 배지는 현재 ${tournament.academicYear}학년도입니다. 위쪽 ‘대회 정보·신청 기간’의 학년도를 변경하고 저장하면 함께 바뀝니다. 상단 문구는 아래 저장 버튼을 눌러야 반영됩니다.`} /></p>
+      <section className="page-header-preview redesigned-login" aria-label="메인페이지 상단 미리보기">
+        <p className="header-preview-label">교사 화면 미리보기 · 저장 전</p>
+        <div className="header-preview-brand"><Brand tournament={tournament} copy={copy} preview /></div>
+        <ApplicationIntro tournament={tournament} copy={copy} preview />
+      </section>
+      <footer><button type="button" className="outline-button" disabled={busy} onClick={() => setCopy(pageHeaderCopy(null))}>기본 문구 불러오기</button><button type="submit" className="solid-button" disabled={busy}>{busy ? "저장 중…" : "상단 로고·제목 저장"}</button></footer>
+    </form>
+  </article>;
 }
 
 function AdminLogin({ onLogin }: { onLogin: () => Promise<void> }) {
@@ -886,6 +923,14 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
     }, "해당 대회를 교사용 화면의 현재 대회로 설정했습니다.");
   }
 
+  async function saveHeaderCopy(copy: Record<string, string>) {
+    if (!selected) return;
+    await run(async () => {
+      await api(`admin/events/${encodeURIComponent(selected.id)}/header-copy`, { method: "PATCH", body: JSON.stringify({ headerCopy: copy }) });
+      await refresh(selected.id);
+    }, "상단 로고·제목을 저장했습니다. 현재 대회인 경우 교사 화면을 새로 열거나 새로고침하면 반영됩니다.");
+  }
+
   async function saveCardCopy(copy: Record<string, string>) {
     if (!selected) return;
     await run(async () => {
@@ -961,6 +1006,7 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
       </> : tab === "event" ? <section className="admin-settings-grid">
         <article className="settings-card"><header><span>01</span><div><p>CURRENT EVENT</p><h2>대회 정보·신청 기간</h2></div></header><form key={selected.id} onSubmit={updateSelectedEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear} required /></label><label><span>대회 상태</span><input value={selected.status === "active" ? "현재 교사 화면에 공개 중" : "임시저장 · 비공개"} disabled /></label></div><label><span>대회명</span><input name="name" defaultValue={selected.name} required /></label><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={seoulInputValue(selected.surveyStart)} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(selected.surveyEnd)} required /></label></div><footer><button type="button" className="outline-button" disabled={busy || selected.status === "active"} onClick={() => void activateSelected()}>{selected.status === "active" ? "현재 대회" : "이 대회를 현재 대회로 설정"}</button><button className="solid-button" disabled={busy}>변경 사항 저장</button></footer></form></article>
         <article className="settings-card new-event-card"><header><span>02</span><div><p>NEW EVENT</p><h2>새 대회 추가</h2></div></header><p>새 대회에는 배구·3x3 농구·피구가 기본 종목으로 추가됩니다.</p><form onSubmit={createNewEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear + 1} required /></label><label><span>대회명</span><input name="name" placeholder="예: 동부학교스포츠클럽 전반기 대회" required /></label></div><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={newStart} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(newEndDate)} required /></label></div><button className="solid-button" disabled={busy}>+ 새 대회 추가</button></form></article>
+        <PageHeaderEditor key={`header-${selected.id}-${selected.headerCopy}`} tournament={selected} busy={busy} onSave={saveHeaderCopy} />
         <EventCardEditor key={`card-${selected.id}-${selected.cardCopy}-${selected.academicYear}-${selected.name}`} tournament={selected} sports={dashboard.sports} schoolCount={dashboard.rows.length} busy={busy} onSave={saveCardCopy} />
       </section> : <section className="admin-settings-grid sports-management">
         <article className="settings-card"><header><span>01</span><div><p>SPORTS LIST</p><h2 title={selected.name}>{selected.name} 종목</h2></div></header><p className="prose-copy"><span className="sentence-unit">종별과 팀 수 기준을 수정할 수 있습니다.</span>{" "}<span className="sentence-unit">신청 기록이 있는 종목은 삭제할 수 없으며 신청 기간 중에는 비활성화도 제한됩니다.</span></p><div className="managed-sports">{dashboard.sports.map((sport) => <section className={`managed-sport-card${sport.active ? "" : " inactive"}`} key={sport.id} aria-labelledby={`sport-name-${sport.id}`}>

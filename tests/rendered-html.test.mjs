@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { normalizeSchoolPasswordInput } from "../worker/school-password.js";
 
 const root = new URL("../", import.meta.url);
@@ -57,15 +60,55 @@ test("uses reliable route links and the revised two-line application title", asy
   const client = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
   assert.doesNotMatch(client, /from ["']next\/link["']/);
   assert.match(client, /<a className="admin-link" href="\/admin">관리자<\/a>/);
-  assert.match(client, /<span className="academic-year-badge">\{bootstrap\.tournament\.academicYear\}학년도<\/span>/);
-  assert.match(client, /<span className="intro-title-primary">동부교육지원청 학교스포츠클럽대회<\/span>/);
-  assert.match(client, /<span className="intro-title-secondary">참가 신청<\/span>/);
+  assert.match(client, /<span className="academic-year-badge">\{tournament\.academicYear\}학년도<\/span>/);
+  assert.match(client, /<ApplicationIntro tournament=\{bootstrap\.tournament\} \/>/);
+  assert.match(client, /<span className="intro-title-primary"><CardText text=\{content\.titlePrimary\} \/><\/span>/);
+  assert.match(client, /<span className="intro-title-secondary"><CardText text=\{content\.titleSecondary\} \/><\/span>/);
   assert.match(client, /<EventCard tournament=\{bootstrap\.tournament\} sports=\{bootstrap\.sports\} schoolCount=\{bootstrap\.schools\.length\}/);
   assert.match(client, /className="school-name">\{school\.name\}<\/span>/);
   assert.match(client, /<b title=\{selectedName\}>✓ \{selectedName\}<\/b>/);
   assert.match(client, /aria-checked=\{selected\} title=\{division\.name\}/);
-  assert.match(client, /<p className="eyebrow" lang="en">DONG-BU SCHOOL SPORTS<\/p>/);
+  assert.match(client, /<p className="eyebrow">\{content\.eyebrow\}<\/p>/);
   assert.doesNotMatch(client, /academicYear \?\? ""\} DONG-BU SCHOOL SPORTS/);
+});
+
+test("renders saved main-page branding safely with a linked year badge and matching admin preview", async () => {
+  const source = (await readFile(new URL("app/survey-app-client.tsx", root), "utf8"))
+    .replace('"react"', JSON.stringify(import.meta.resolve("react")))
+    .replace('"./event-card-copy.js"', JSON.stringify(new URL("app/event-card-copy.js", root).href))
+    .replace('"./page-header-copy.js"', JSON.stringify(new URL("app/page-header-copy.js", root).href));
+  const compiled = ts.transpileModule(source + "\nexport { SchoolLogin, PageHeaderEditor, ApplicationIntro };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
+  const { SchoolLogin, PageHeaderEditor, ApplicationIntro } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const tournament = { id: "preview", academicYear: 2027, name: "새 대회", headerCopy: "{}", cardCopy: "{}", surveyStart: "2026-09-13T15:00:00.000Z", surveyEnd: "2026-09-18T08:00:00.000Z", status: "active" };
+  const bootstrap = { tournament, schools: [], sports: [], surveyState: { open: true, code: "OPEN", message: "" } };
+  const renderLogin = () => renderToStaticMarkup(createElement(SchoolLogin, { bootstrap, onLogin() {} }));
+  const defaults = renderLogin();
+  assert.match(defaults, /data-length="1"[^>]*>D<\/span>/);
+  assert.match(defaults, /동부교육지원청 학교스포츠클럽대회/);
+  assert.match(defaults, /DONG-BU SCHOOL SPORTS/);
+  assert.match(defaults, /09\.14\.\(월\) 00:00/);
+  assert.match(defaults, /~ 09\.18\.\(금\) 17:00/);
+  assert.doesNotMatch(defaults, /한국시간 기준/);
+  tournament.headerCopy = JSON.stringify({ logoText: "동부", brandName: "새 교육지원청", brandSubtitle: "새 스포츠", eyebrow: "NEW SPORTS", titlePrimary: "첫 문장.\n둘째 문장.", titleSecondary: "<script>alert(1)</script>" });
+  const changed = renderLogin();
+  assert.match(changed, /data-length="2"[^>]*>동부<\/span>/);
+  assert.match(changed, /새 교육지원청/);
+  assert.match(changed, /새 스포츠/);
+  assert.match(changed, /NEW SPORTS/);
+  assert.match(changed, /2027학년도/);
+  assert.match(changed, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(changed, /<script>alert/);
+  assert.equal((changed.match(/<h1\b/g) ?? []).length, 1);
+  const preview = renderToStaticMarkup(createElement(PageHeaderEditor, { tournament, busy: false, async onSave() {} }));
+  assert.match(preview, /메인페이지 상단 로고·제목/);
+  assert.match(preview, /data-length="2"[^>]*>동부<\/span>/);
+  assert.match(preview, /상단 로고·제목 저장/);
+  assert.doesNotMatch(preview, /<h1\b/);
+  const updatedYear = renderToStaticMarkup(createElement(ApplicationIntro, { tournament: { ...tournament, academicYear: 2028 } }));
+  assert.match(updatedYear, /2028학년도/);
+  assert.doesNotMatch(updatedYear, /2027학년도/);
+  const hidden = renderToStaticMarkup(createElement(ApplicationIntro, { tournament, copy: { titleSecondary: "", eyebrow: "" } }));
+  assert.doesNotMatch(hidden, /intro-title-secondary|class="eyebrow"/);
 });
 
 test("provides protected sport editing and deletion controls", async () => {

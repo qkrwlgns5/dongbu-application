@@ -36,6 +36,13 @@
       "when": 1789095821697,
       "tag": "0006_event_card_copy",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789098789683,
+      "tag": "0007_page_header_copy",
+      "breakpoints": true
     }
   ]
 }

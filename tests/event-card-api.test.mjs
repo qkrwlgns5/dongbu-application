@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
 import { eventCardCopy, normalizeEventCardCopy, formatEventCardDate } from "../app/event-card-copy.js";
+import { PAGE_HEADER_FIELDS, pageHeaderCopy, normalizePageHeaderCopy } from "../app/page-header-copy.js";
 
 // Run the real handler against SQLite in memory. No production credentials,
 // HTTP calls, or local/remote application databases are used by these checks.
@@ -12,7 +13,8 @@ const sourceUrl = new URL("../worker/api.ts", import.meta.url);
 const source = (await readFile(sourceUrl, "utf8"))
   .replace('"./school-password.js"', JSON.stringify(new URL("../worker/school-password.js", import.meta.url).href))
   .replace('"./team-limits.js"', JSON.stringify(new URL("../worker/team-limits.js", import.meta.url).href))
-  .replace('"../app/event-card-copy.js"', JSON.stringify(new URL("../app/event-card-copy.js", import.meta.url).href));
+  .replace('"../app/event-card-copy.js"', JSON.stringify(new URL("../app/event-card-copy.js", import.meta.url).href))
+  .replace('"../app/page-header-copy.js"', JSON.stringify(new URL("../app/page-header-copy.js", import.meta.url).href));
 const { handleApi } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
 
 class TestD1 {
@@ -107,6 +109,67 @@ test("card settings are admin-only, per-event, persistent and backward compatibl
     assert.deepEqual(JSON.parse((await call("bootstrap")).data.tournament.cardCopy), body.cardCopy);
     assert.equal((await call("admin/dashboard", { cookie })).data.selectedEvent.id, id);
     assert.equal(sqlite.prepare("SELECT count(*) AS n FROM schools").get().n, 43);
+  } finally { sqlite.close(); }
+});
+
+test("header defaults and validation preserve required branding and optional plain text", () => {
+  assert.equal(pageHeaderCopy(null).logoText, "D");
+  assert.equal(pageHeaderCopy(null).titlePrimary, "동부교육지원청 학교스포츠클럽대회");
+  assert.equal(pageHeaderCopy(null).titleSecondary, "참가 신청");
+  assert.equal(pageHeaderCopy({ headerCopy: "broken" }).eyebrow, "DONG-BU SCHOOL SPORTS");
+  assert.equal(pageHeaderCopy({ headerCopy: '{"brandSubtitle":""}' }).brandSubtitle, "");
+  assert.deepEqual(normalizePageHeaderCopy({ logoText: " 동부 ", brandName: "기관\n이름", titlePrimary: " 첫째\r\n둘째 ", academicYear: 2099 }), { logoText: "동부", brandName: "기관 이름", titlePrimary: "첫째\n둘째" });
+  for (const field of PAGE_HEADER_FIELDS) assert.throws(() => normalizePageHeaderCopy({ [field.key]: "가".repeat(field.max + 1) }));
+  for (const field of PAGE_HEADER_FIELDS.filter((field) => field.required)) assert.throws(() => normalizePageHeaderCopy({ [field.key]: "  " }));
+  for (const value of [null, [], 123, { logoText: "D B" }, { brandName: 42 }]) assert.throws(() => normalizePageHeaderCopy(value));
+  assert.equal(pageHeaderCopy(null, { titlePrimary: "" }).titlePrimary, "", "incomplete preview drafts remain visible to the editor");
+});
+
+test("header settings are admin-only and preserve other settings and submitted applications", async () => {
+  const { sqlite, call, cookie, start, end } = await fixture();
+  try {
+    const boot = (await call("bootstrap")).data;
+    const id = boot.tournament.id;
+    assert.equal(boot.tournament.headerCopy, "{}");
+    const path = `admin/events/${id}/header-copy`;
+    const body = { headerCopy: { logoText: "동부", brandName: "새 교육지원청", brandSubtitle: "학교 체육", eyebrow: "NEW SCHOOL SPORTS", titlePrimary: "새 대회\n참가 안내", titleSecondary: "<script>text only</script>" } };
+    const school = await call("school/login", { method: "POST", body: { schoolId: "test-school", password: "ehdek99" } });
+    assert.equal(school.status, 200);
+    assert.equal((await call("school/survey", { method: "PUT", cookie: school.cookie, body: { revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }] } })).status, 200);
+    const savedSurvey = (await call("school/session", { cookie: school.cookie })).data.survey;
+    assert.equal((await call(path, { method: "PATCH", body })).status, 401);
+    assert.equal((await call(path, { method: "PATCH", body, cookie: school.cookie })).status, 401);
+    assert.equal((await call(path, { method: "PATCH", body, cookie, origin: "https://untrusted.example" })).status, 403);
+    assert.equal((await call("admin/events/missing/header-copy", { method: "PATCH", body, cookie })).status, 404);
+    for (const invalid of [null, {}, { headerCopy: null }, { headerCopy: [] }, { headerCopy: { titlePrimary: " " } }, { headerCopy: { logoText: "LONG" } }]) assert.equal((await call(path, { method: "PATCH", body: invalid, cookie })).status, 400);
+    assert.equal((await call(path, { method: "PATCH", body, cookie })).status, 200);
+    let latest = (await call("bootstrap")).data.tournament;
+    assert.deepEqual(JSON.parse(latest.headerCopy), body.headerCopy);
+    assert.equal(latest.academicYear, boot.tournament.academicYear);
+    assert.equal(latest.surveyStart, start);
+    assert.equal(latest.surveyEnd, end);
+    assert.equal(latest.cardCopy, "{}");
+    assert.deepEqual((await call("school/session", { cookie: school.cookie })).data.survey, savedSurvey);
+    assert.deepEqual(JSON.parse((await call("school/session", { cookie: school.cookie })).data.tournament.headerCopy), body.headerCopy);
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM admin_audit_logs WHERE entity_type = 'tournament_header'").get().n, 1);
+    assert.deepEqual(JSON.parse((await call("admin/dashboard", { cookie })).data.selectedEvent.headerCopy), body.headerCopy);
+    // Existing editors must never erase the separate header settings.
+    assert.equal((await call(`admin/events/${id}/card-copy`, { method: "PATCH", cookie, body: { cardCopy: { title: "보존할 카드 제목" } } })).status, 200);
+    assert.equal((await call(`admin/events/${id}`, { method: "PATCH", cookie, body: { academicYear: 2027, name: "변경된 대회", surveyStart: start, surveyEnd: end } })).status, 200);
+    latest = (await call("bootstrap")).data.tournament;
+    assert.deepEqual(JSON.parse(latest.headerCopy), body.headerCopy);
+    assert.equal(latest.academicYear, 2027);
+    const second = await call("admin/events", { method: "POST", cookie, body: { academicYear: 2028, name: "다른 대회", surveyStart: start, surveyEnd: end } });
+    assert.equal(second.status, 201);
+    const secondDashboard = (await call(`admin/dashboard?eventId=${second.data.id}`, { cookie })).data;
+    assert.equal(secondDashboard.selectedEvent.headerCopy, "{}");
+    assert.equal((await call(`admin/events/${second.data.id}/header-copy`, { method: "PATCH", cookie, body: { headerCopy: { logoText: "DB", titlePrimary: "다른 대회 제목" } } })).status, 200);
+    assert.deepEqual(JSON.parse((await call("bootstrap")).data.tournament.headerCopy), body.headerCopy);
+    assert.equal((await call(path, { method: "PATCH", cookie, body: { headerCopy: {} } })).status, 200);
+    latest = (await call("bootstrap")).data.tournament;
+    assert.equal(pageHeaderCopy(latest).logoText, "D");
+    assert.equal(JSON.parse(latest.cardCopy).title, "보존할 카드 제목");
+    assert.deepEqual((await call("school/session", { cookie: school.cookie })).data.survey, savedSurvey);
   } finally { sqlite.close(); }
 });
 

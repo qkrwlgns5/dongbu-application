@@ -1,0 +1,1 @@
+ALTER TABLE `tournaments` ADD `header_copy` text DEFAULT '{}' NOT NULL;

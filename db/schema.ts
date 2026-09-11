@@ -28,6 +28,7 @@ export const tournaments = sqliteTable(
     name: text("name").notNull(),
     surveyStart: text("survey_start").notNull(),
     cardCopy: text("card_copy").notNull().default("{}"),
+    headerCopy: text("header_copy").notNull().default("{}"),
     surveyEnd: text("survey_end").notNull(),
     status: text("status", { enum: ["draft", "active", "archived"] }).notNull().default("draft"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),

@@ -8,9 +8,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 button { text-align: center; }
 button, input, select, textarea, b, strong { font-weight: 800; }
 .brand { gap: 10px; font-size: 15px; }
-.brand > span:last-child { white-space: normal; }
+.brand > span:last-child { white-space: normal; font-size: inherit; overflow: visible; }
 .brand b { display: block; margin-top: 4px; color: #6c848b; font-size: 12px; letter-spacing: .04em; }
 .brand-mark { width: 40px; height: 40px; border-radius: 11px; background: var(--deep); color: var(--lime); box-shadow: none; font-size: 25px; }
+.brand-mark[data-length] { line-height: 1; letter-spacing: 0; white-space: nowrap; text-align: center; }
+.brand-mark[data-length="2"] { font-size: 1.125rem; }
+.brand-mark[data-length="3"] { min-width: 44px; font-size: .875rem; }
+.brand-bar { gap: 18px; padding-block: 14px; }
+.header-right { flex-shrink: 0; }
 .brand-bar { width: min(1280px, calc(100% - 80px)); min-height: 90px; }
 .header-right { display: flex; align-items: center; gap: 20px; font-size: 13px; color: var(--muted); }
 .admin-link { padding: 10px 18px; border-radius: 8px; font-size: 14px; background: white; }
@@ -21,10 +26,20 @@ button, input, select, textarea, b, strong { font-weight: 800; }
 .redesigned-login .intro-copy { padding: 0; min-width: 0; }
 .year-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 15px; }
 .academic-year-badge { background: #e8f3ed; border-color: #d5e6db; box-shadow: none; border-radius: 6px; color: #3d7966; font-size: 13px; min-height: 28px; }
-.year-heading .eyebrow { margin: 0; color: #789096; font-size: 12px; letter-spacing: .12em; }
+.year-heading .eyebrow { min-width: 0; max-width: 100%; white-space: normal; margin: 0; color: #789096; font-size: 12px; letter-spacing: .12em; }
+.academic-year-badge { flex-shrink: 0; }
 .redesigned-login .intro-copy h1 { gap: 3px; line-height: 1.35; letter-spacing: -.035em; }
 .redesigned-login .intro-title-primary { font-size: clamp(24px, 2.4vw, 34px); }
 .redesigned-login .intro-title-secondary { font-size: clamp(30px, 2.7vw, 38px); color: var(--teal); }
+.page-header-editor { grid-column: 1 / -1; min-width: 0; }
+.page-header-editor > form { margin-top: 24px; }
+.page-header-editor input, .page-header-editor textarea { width: 100%; min-width: 0; }
+.page-header-editor form > footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.page-header-editor form > footer button { min-width: 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+.page-header-preview { padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); min-width: 0; }
+.page-header-preview .header-preview-label { margin: 0 0 16px; color: var(--muted); font-size: .875rem; }
+.header-preview-brand { padding-bottom: 20px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
+.page-header-preview .application-heading { display: grid; gap: 3px; margin: 0; max-width: 100%; color: var(--ink); font-size: inherit; line-height: 1.35; letter-spacing: -.035em; word-break: keep-all; overflow-wrap: break-word; text-wrap: balance; }
 .application-steps { padding: 0; margin: 0; list-style: none; display: flex; align-items: center; flex-wrap: wrap; gap: 18px; }
 .application-steps li { display: flex; align-items: center; gap: 7px; color: #8a9da3; font-size: 13px; white-space: nowrap; }
 .application-steps i { width: 25px; height: 25px; border-radius: 50%; background: #e8eef0; display: grid; place-items: center; font-size: 12px; font-style: normal; }
