@@ -237,6 +237,30 @@ test("summarizes division teams and opens a scroll-locked participant dialog", a
   assert.match(styles, /\.division-participant-list \{[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain/s);
 });
 
+test("results table preserves horizontal scrolling without trapping vertical page gestures", async () => {
+  const base = await readFile(new URL("app/globals.css", root), "utf8");
+  const redesign = await readFile(new URL("app/redesign.css", root), "utf8");
+  // Apply the matching declarations in the same order as layout.tsx. A later
+  // two-axis `contain` must fail even if the earlier/base rule is correct.
+  const computed = { x: "auto", y: "auto" };
+  const rules = [...(base + "\n" + redesign).matchAll(/\.results-table-wrap\s*\{([^}]*)\}/gu)];
+  assert.ok(rules.length > 0);
+  for (const [, rule] of rules) {
+    for (const declaration of rule.split(";")) {
+      const [property, value] = declaration.split(":").map((part) => part.trim());
+      if (property === "overscroll-behavior") {
+        const [x, y = x] = value.split(/\s+/u);
+        computed.x = x; computed.y = y;
+      }
+      if (["overscroll-behavior-x", "overscroll-behavior-inline"].includes(property)) computed.x = value;
+      if (["overscroll-behavior-y", "overscroll-behavior-block"].includes(property)) computed.y = value;
+      if (property === "touch-action") assert.ok(["auto", "manipulation", "pan-x pan-y pinch-zoom"].includes(value), "table must not disable vertical gestures or zoom");
+    }
+  }
+  assert.deepEqual(computed, { x: "contain", y: "auto" });
+  assert.match(base, /\.results-table-wrap\s*\{[^}]*overflow-x:\s*auto/u);
+});
+
 test("self-hosts and globally applies the requested NanumSquareRound OTF ExtraBold font", async () => {
   const [styles, font] = await Promise.all([
     readFile(new URL("app/globals.css", root), "utf8"),
