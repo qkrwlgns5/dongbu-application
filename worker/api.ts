@@ -3,6 +3,9 @@ import { validateTeamLimitConfiguration, validateTeamSelection } from "./team-li
 import { normalizeEventCardCopy } from "../app/event-card-copy.js";
 import { normalizePageHeaderCopy } from "../app/page-header-copy.js";
 import { MAX_LOGO_BYTES, validateLogoPng, logoObjectKey } from "./logo-image.js";
+import { SCHOOL_LEVELS, schoolLevels, validateSchoolLevels } from "../app/school-levels.js";
+
+type SchoolLevel = "elementary" | "middle";
 
 export interface Env {
   DB: D1Database;
@@ -20,6 +23,7 @@ interface ApiError extends Error {
 interface TournamentRow {
   id: string;
   academicYear: number;
+  schoolLevels: string;
   name: string;
   surveyStart: string;
   cardCopy: string;
@@ -45,6 +49,12 @@ interface AdminCredentialRow {
   authVersion: number;
 }
 
+interface SchoolCredentialSnapshot {
+  passwordSalt: string;
+  passwordHash: string;
+  passwordIterations: number;
+}
+
 interface SportRow {
   id: string;
   name: string;
@@ -59,6 +69,7 @@ interface DivisionRow {
   id: string;
   sportId: string;
   name: string;
+  schoolLevel: SchoolLevel;
   displayOrder: number;
   active: number;
 }
@@ -221,12 +232,12 @@ function parseIsoDate(value: unknown, field: string): string {
 
 function tournamentState(tournament: TournamentRow | null) {
   if (!tournament || tournament.status !== "active") {
-    return { open: false, code: "UNAVAILABLE", message: "진행 중인 참가 신청이 없습니다." };
+    return { open: false, code: "UNAVAILABLE", message: "진행 중인 참가 신청가 없습니다." };
   }
   const now = Date.now();
   const start = new Date(tournament.surveyStart).getTime();
   const end = new Date(tournament.surveyEnd).getTime();
-  if (now < start) return { open: false, code: "NOT_STARTED", message: "참가 신청이 아직 시작되지 않았습니다." };
+  if (now < start) return { open: false, code: "NOT_STARTED", message: "참가 신청가 아직 시작되지 않았습니다." };
   if (now >= end) return { open: false, code: "ENDED", message: "참가 신청 기간이 종료되었습니다." };
   return { open: true, code: "OPEN", message: "참가 신청 진행 중입니다." };
 }
@@ -234,21 +245,63 @@ function tournamentState(tournament: TournamentRow | null) {
 async function activeTournament(db: D1Database): Promise<TournamentRow | null> {
   return db.prepare(
     `SELECT t.id, t.academic_year AS academicYear, t.name,
-       t.survey_start AS surveyStart, t.survey_end AS surveyEnd, t.status, t.card_copy AS cardCopy, t.header_copy AS headerCopy, t.logo_key AS logoKey
+       t.survey_start AS surveyStart, t.survey_end AS surveyEnd, t.status, t.card_copy AS cardCopy, t.header_copy AS headerCopy, t.logo_key AS logoKey, t.school_levels AS schoolLevels
      FROM app_config c JOIN tournaments t ON t.id = c.active_tournament_id
-     WHERE c.id = 1`,
+     WHERE c.id = 1 AND t.status = 'active'`,
   ).first<TournamentRow>();
 }
 
 async function tournamentById(db: D1Database, id: string): Promise<TournamentRow | null> {
   return db.prepare(
     `SELECT id, academic_year AS academicYear, name,
-       survey_start AS surveyStart, survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy, logo_key AS logoKey
+       survey_start AS surveyStart, survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy, logo_key AS logoKey, school_levels AS schoolLevels
      FROM tournaments WHERE id = ?`,
   ).bind(id).first<TournamentRow>();
 }
 
-async function sportsForTournament(db: D1Database, tournamentId: string, activeOnly = true) {
+async function publicTournaments(db: D1Database) {
+  const result = await db.prepare(
+    `SELECT id, academic_year AS academicYear, name, survey_start AS surveyStart,
+       survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy,
+       logo_key AS logoKey, school_levels AS schoolLevels
+     FROM tournaments WHERE status = 'active' ORDER BY academic_year DESC, created_at DESC, id`,
+  ).all<TournamentRow>();
+  return result.results.map((tournament) => ({ ...tournament, surveyState: tournamentState(tournament) }));
+}
+
+async function publishedTournamentSelection(db: D1Database, requestedId?: unknown) {
+  const [tournaments, preferred] = await Promise.all([publicTournaments(db), activeTournament(db)]);
+  const preferredPublic = tournaments.find((tournament) => tournament.id === preferred?.id);
+  const defaultTournament = (preferredPublic?.surveyState.open ? preferredPublic : tournaments.find((tournament) => tournament.surveyState.open))
+    ?? preferredPublic ?? tournaments[0] ?? null;
+  let selected: (typeof tournaments)[number] | null = defaultTournament;
+  if (requestedId !== undefined && requestedId !== null) {
+    const id = cleanText(requestedId, "대회", 80);
+    selected = tournaments.find((tournament) => tournament.id === id) ?? null;
+    if (!selected) throw apiError("공개된 참가 신청를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  }
+  // Keep the selected-event contract stable: surveyState is supplied beside it.
+  const tournament = selected ? (({ surveyState: _state, ...row }) => row)(selected) : null;
+  return { tournament, tournaments, defaultEventId: defaultTournament?.id ?? null };
+}
+
+function assertExpectedTournament(request: Request, tournamentId: string, bodyId?: unknown) {
+  for (const expected of [new URL(request.url).searchParams.get("tournamentId"), bodyId]) {
+    if (expected !== undefined && expected !== null && expected !== tournamentId) {
+      throw apiError("다른 창에서 로그인한 대회가 변경되었습니다. 선택한 대회에 다시 로그인해 주세요.", 409, "EVENT_CHANGED");
+    }
+  }
+}
+
+function assertExpectedSchool(request: Request, schoolId: string, bodyId?: unknown) {
+  for (const expected of [new URL(request.url).searchParams.get("schoolId"), bodyId]) {
+    if (expected !== undefined && expected !== null && expected !== schoolId) {
+      throw apiError("다른 창에서 로그인한 학교가 변경되었습니다. 해당 학교로 다시 로그인해 주세요.", 409, "SCHOOL_CHANGED");
+    }
+  }
+}
+
+async function sportsForTournament(db: D1Database, tournamentId: string, activeOnly = true, schoolLevel?: SchoolLevel) {
   const sportsResult = await db.prepare(
     `SELECT id, name, display_order AS displayOrder,
        team_count_enabled AS teamCountEnabled,
@@ -261,7 +314,7 @@ async function sportsForTournament(db: D1Database, tournamentId: string, activeO
   if (!sportIds.length) return [];
   const placeholders = sportIds.map(() => "?").join(",");
   const divisionsResult = await db.prepare(
-    `SELECT id, sport_id AS sportId, name, display_order AS displayOrder, active
+    `SELECT id, sport_id AS sportId, name, school_level AS schoolLevel, display_order AS displayOrder, active
      FROM divisions WHERE sport_id IN (${placeholders}) ${activeOnly ? "AND active = 1" : ""}
      ORDER BY display_order, name`,
   ).bind(...sportIds).all<DivisionRow>();
@@ -274,29 +327,38 @@ async function sportsForTournament(db: D1Database, tournamentId: string, activeO
     maxTeamsPerDivision: Number(sport.maxTeamsPerDivision),
     active: Boolean(sport.active),
     divisions: divisionsResult.results
-      .filter((division) => division.sportId === sport.id)
+      .filter((division) => division.sportId === sport.id && (!schoolLevel || division.schoolLevel === schoolLevel))
       .map((division) => ({
         id: division.id,
         name: division.name,
+        schoolLevel: division.schoolLevel,
         displayOrder: Number(division.displayOrder),
         active: Boolean(division.active),
       })),
-  }));
+  })).filter((sport) => !schoolLevel || sport.divisions.length > 0);
 }
 
-async function publicBootstrap(db: D1Database) {
-  const [tournament, schoolResult] = await Promise.all([
-    activeTournament(db),
-    db.prepare("SELECT id, name, display_order AS displayOrder FROM schools WHERE active = 1 ORDER BY display_order").all<{
-      id: string;
-      name: string;
-      displayOrder: number;
-    }>(),
+async function eligibleSchools(db: D1Database, tournament: TournamentRow | null) {
+  const levels = schoolLevels(tournament?.schoolLevels);
+  return db.prepare(
+    `SELECT id, name, school_level AS schoolLevel, display_order AS displayOrder FROM schools
+     WHERE active = 1 AND school_level IN (${levels.map(() => "?").join(",")})
+       AND (eligible_from IS NULL OR julianday(eligible_from) < julianday(?))
+     ORDER BY CASE school_level WHEN 'elementary' THEN 0 ELSE 1 END, display_order, name`,
+  ).bind(...levels, tournament?.surveyEnd ?? "0001-01-01").all<{ id: string; name: string; schoolLevel: SchoolLevel; displayOrder: number }>();
+}
+
+async function publicBootstrap(request: Request, db: D1Database) {
+  const { tournament, tournaments, defaultEventId } = await publishedTournamentSelection(db, new URL(request.url).searchParams.get("tournamentId"));
+  const [schoolResult, sports] = await Promise.all([
+    tournament ? eligibleSchools(db, tournament) : { results: [] },
+    tournament ? sportsForTournament(db, tournament.id, true) : [],
   ]);
-  const sports = tournament ? await sportsForTournament(db, tournament.id, true) : [];
   return {
     title: "동부교육지원청 학교스포츠클럽대회 참가 신청",
     tournament,
+    tournaments,
+    defaultEventId,
     surveyState: tournamentState(tournament),
     schools: schoolResult.results.map((school) => ({ ...school, displayOrder: Number(school.displayOrder) })),
     sports,
@@ -330,16 +392,34 @@ async function createSession(
   schoolId: string | null,
   tournamentId: string | null,
   adminAuthVersion: number | null = null,
+  schoolCredential?: SchoolCredentialSnapshot,
 ) {
   const seconds = actorType === "school" ? SCHOOL_SESSION_SECONDS : ADMIN_SESSION_SECONDS;
   const token = randomToken();
   const expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
-  await db.batch([
-    db.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(new Date().toISOString()),
-    db.prepare(
+  if (actorType === "school" && !schoolCredential) throw apiError("학교 로그인 정보를 다시 확인해 주세요.", 401, "INVALID_CREDENTIALS");
+  const tokenHash = await sha256(token);
+  const insertion = actorType === "school"
+    ? db.prepare(
+      `INSERT INTO sessions (token_hash, actor_type, school_id, tournament_id, admin_auth_version, expires_at)
+       SELECT ?, 'school', ?, ?, NULL, ? WHERE EXISTS (
+         SELECT 1 FROM schools sc JOIN tournaments t ON t.id = ?
+         WHERE sc.id = ? AND sc.active = 1 AND sc.password_salt = ? AND sc.password_hash = ? AND sc.password_iterations = ?
+           AND t.status = 'active' AND julianday(t.survey_start) <= julianday('now') AND julianday(t.survey_end) > julianday('now')
+           AND sc.school_level IN (SELECT value FROM json_each(t.school_levels))
+           AND (sc.eligible_from IS NULL OR julianday(sc.eligible_from) < julianday(t.survey_end))
+       )`,
+    ).bind(tokenHash, schoolId, tournamentId, expiresAt, tournamentId, schoolId, schoolCredential!.passwordSalt, schoolCredential!.passwordHash, schoolCredential!.passwordIterations)
+    : db.prepare(
       "INSERT INTO sessions (token_hash, actor_type, school_id, tournament_id, admin_auth_version, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).bind(await sha256(token), actorType, schoolId, tournamentId, adminAuthVersion, expiresAt),
+    ).bind(tokenHash, actorType, schoolId, tournamentId, adminAuthVersion, expiresAt);
+  const results = await db.batch([
+    db.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(new Date().toISOString()),
+    insertion,
   ]);
+  if (actorType === "school" && !results[1].meta.changes) {
+    throw apiError("로그인 중 기관번호 또는 신청 설정이 변경되었습니다. 새로고침 후 다시 로그인해 주세요.", 401, "INVALID_CREDENTIALS");
+  }
   return {
     header: sessionCookie(request, actorType === "school" ? SCHOOL_COOKIE : ADMIN_COOKIE, token, seconds),
   };
@@ -409,29 +489,30 @@ async function schoolLogin(request: Request, env: Env): Promise<Response> {
   if (!env.SCHOOL_PASSWORD_PEPPER) {
     throw apiError("학교 로그인 보안 설정이 필요합니다.", 503, "SECRET_MISSING");
   }
-  const tournament = await activeTournament(env.DB);
+  const body = await readJson<{ schoolId?: string; password?: string; tournamentId?: string }>(request);
+  const { tournament } = await publishedTournamentSelection(env.DB, body.tournamentId);
   const state = tournamentState(tournament);
   if (!tournament || !state.open) throw apiError(state.message, 403, "SURVEY_CLOSED");
-  const body = await readJson<{ schoolId?: string; password?: string }>(request);
   const schoolId = cleanText(body.schoolId, "학교", 80);
   const password = normalizeSchoolPasswordInput(body.password);
   const key = await rateLimitKey(request, "school", schoolId);
   await assertNotRateLimited(env.DB, key);
 
   const school = await env.DB.prepare(
-    `SELECT id, name, password_salt AS passwordSalt,
+    `SELECT id, name, school_level AS schoolLevel, password_salt AS passwordSalt,
        password_hash AS passwordHash, password_iterations AS passwordIterations
-     FROM schools WHERE id = ? AND active = 1`,
-  ).bind(schoolId).first<{
+     FROM schools WHERE id = ? AND active = 1 AND (eligible_from IS NULL OR julianday(eligible_from) < julianday(?))`,
+  ).bind(schoolId, tournament.surveyEnd).first<{
     id: string;
     name: string;
+    schoolLevel: SchoolLevel;
     passwordSalt: string;
     passwordHash: string;
     passwordIterations: number;
   }>();
 
   let valid = false;
-  if (school && password) {
+  if (school && password && schoolLevels(tournament.schoolLevels).includes(school.schoolLevel)) {
     const supplied = await hashSchoolPassword(
       password,
       env.SCHOOL_PASSWORD_PEPPER,
@@ -448,10 +529,10 @@ async function schoolLogin(request: Request, env: Env): Promise<Response> {
   }
 
   await clearLoginFailures(env.DB, key);
-  const session = await createSession(request, env.DB, "school", school.id, tournament.id);
+  const session = await createSession(request, env.DB, "school", school.id, tournament.id, null, school);
   const survey = await getSurvey(env.DB, tournament.id, school.id);
   return json(
-    { school: { id: school.id, name: school.name }, tournament, sports: await sportsForTournament(env.DB, tournament.id), survey },
+    { school: { id: school.id, name: school.name, schoolLevel: school.schoolLevel }, tournament, sports: await sportsForTournament(env.DB, tournament.id, true, school.schoolLevel), survey },
     200,
     { "Set-Cookie": session.header },
   );
@@ -460,40 +541,48 @@ async function schoolLogin(request: Request, env: Env): Promise<Response> {
 async function requireSchoolContext(request: Request, env: Env) {
   const session = await requireSession(request, env.DB, "school");
   if (!session.schoolId || !session.tournamentId) throw apiError("로그인 정보가 완전하지 않습니다.", 401, "SESSION_INVALID");
-  const [current, tournament, school] = await Promise.all([
-    activeTournament(env.DB),
+  assertExpectedTournament(request, session.tournamentId);
+  assertExpectedSchool(request, session.schoolId);
+  const [tournament, school] = await Promise.all([
     tournamentById(env.DB, session.tournamentId),
-    env.DB.prepare("SELECT id, name FROM schools WHERE id = ? AND active = 1").bind(session.schoolId).first<{ id: string; name: string }>(),
+    env.DB.prepare(
+      `SELECT sc.id, sc.name, sc.school_level AS schoolLevel,
+         CASE WHEN sc.eligible_from IS NULL OR julianday(sc.eligible_from) < julianday(t.survey_end) THEN 1 ELSE 0 END AS eligible
+       FROM schools sc JOIN tournaments t ON t.id = ? WHERE sc.id = ? AND sc.active = 1`,
+    ).bind(session.tournamentId, session.schoolId).first<{ id: string; name: string; schoolLevel: SchoolLevel; eligible: number }>(),
   ]);
-  if (!current || current.id !== session.tournamentId || !tournament) {
-    throw apiError("현재 참가 신청 대회가 변경되었습니다. 다시 로그인해 주세요.", 409, "EVENT_CHANGED");
-  }
+  if (!tournament) throw apiError("참가 신청를 찾을 수 없습니다.", 404, "NOT_FOUND");
   const state = tournamentState(tournament);
   if (!state.open) throw apiError(state.message, 403, "SURVEY_CLOSED");
   if (!school) throw apiError("학교 정보를 확인할 수 없습니다.", 401, "SCHOOL_INACTIVE");
-  return { school, tournament };
+  if (!schoolLevels(tournament.schoolLevels).includes(school.schoolLevel) || !school.eligible) {
+    throw apiError("해당 학교는 이번 참가 신청의 대상이 아닙니다.", 403, "SCHOOL_NOT_ELIGIBLE");
+  }
+  return { school: { id: school.id, name: school.name, schoolLevel: school.schoolLevel }, tournament };
 }
 
 async function schoolSession(request: Request, env: Env): Promise<Response> {
   const { school, tournament } = await requireSchoolContext(request, env);
-  return json({ school, tournament, sports: await sportsForTournament(env.DB, tournament.id), survey: await getSurvey(env.DB, tournament.id, school.id) });
+  return json({ school, tournament, sports: await sportsForTournament(env.DB, tournament.id, true, school.schoolLevel), survey: await getSurvey(env.DB, tournament.id, school.id) });
 }
 
 async function schoolParticipants(request: Request, env: Env): Promise<Response> {
   const { school, tournament } = await requireSchoolContext(request, env);
+  const levels = schoolLevels(tournament.schoolLevels);
   const [sports, items] = await Promise.all([
     sportsForTournament(env.DB, tournament.id),
     env.DB.prepare(
       `SELECT s.id AS sportId, d.id AS divisionId, d.name AS divisionName,
-         sc.id AS schoolId, sc.name AS schoolName, ri.team_count AS teamCount
+         sc.id AS schoolId, sc.name AS schoolName, sc.school_level AS schoolLevel, ri.team_count AS teamCount
        FROM response_items ri
        JOIN responses r ON r.tournament_id = ri.tournament_id AND r.school_id = ri.school_id
        JOIN schools sc ON sc.id = ri.school_id AND sc.active = 1
        JOIN divisions d ON d.id = ri.division_id AND d.active = 1
        JOIN sports s ON s.id = d.sport_id AND s.tournament_id = ri.tournament_id AND s.active = 1
        WHERE ri.tournament_id = ? AND r.no_participation = 0 AND ri.team_count > 0
-       ORDER BY sc.display_order, sc.name, d.display_order, d.name`,
-    ).bind(tournament.id).all<{ sportId: string; divisionId: string; divisionName: string; schoolId: string; schoolName: string; teamCount: number }>(),
+         AND sc.school_level IN (${levels.map(() => "?").join(",")}) AND d.school_level = sc.school_level
+       ORDER BY CASE sc.school_level WHEN 'elementary' THEN 0 ELSE 1 END, sc.display_order, sc.name, d.display_order, d.name`,
+    ).bind(tournament.id, ...levels).all<{ sportId: string; divisionId: string; divisionName: string; schoolId: string; schoolName: string; schoolLevel: SchoolLevel; teamCount: number }>(),
   ]);
   return json({
     tournamentId: tournament.id,
@@ -503,7 +592,7 @@ async function schoolParticipants(request: Request, env: Env): Promise<Response>
       const schools = [...new Set(rows.map((row) => row.schoolId))].map((schoolId) => {
         const selections = rows.filter((row) => row.schoolId === schoolId);
         return {
-          schoolId, schoolName: selections[0].schoolName, isOwnSchool: schoolId === school.id,
+          schoolId, schoolName: selections[0].schoolName, schoolLevel: selections[0].schoolLevel, isOwnSchool: schoolId === school.id,
           teamCount: selections.reduce((sum, row) => sum + Number(row.teamCount), 0),
           selections: selections.map((row) => ({ divisionId: row.divisionId, divisionName: row.divisionName, teamCount: Number(row.teamCount) })),
         };
@@ -513,7 +602,7 @@ async function schoolParticipants(request: Request, env: Env): Promise<Response>
         teamCount: schools.reduce((sum, row) => sum + row.teamCount, 0),
         divisions: sport.divisions.map((division) => {
           const selected = rows.filter((row) => row.divisionId === division.id);
-          return { id: division.id, name: division.name, schoolCount: selected.length, teamCount: selected.reduce((sum, row) => sum + Number(row.teamCount), 0) };
+          return { id: division.id, name: division.name, schoolLevel: division.schoolLevel, schoolCount: selected.length, teamCount: selected.reduce((sum, row) => sum + Number(row.teamCount), 0) };
         }),
       };
     }),
@@ -521,20 +610,20 @@ async function schoolParticipants(request: Request, env: Env): Promise<Response>
 }
 
 async function saveSurvey(request: Request, env: Env): Promise<Response> {
-  const session = await requireSession(request, env.DB, "school");
-  if (!session.schoolId || !session.tournamentId) throw apiError("로그인 정보가 완전하지 않습니다.", 401, "SESSION_INVALID");
-  const current = await activeTournament(env.DB);
-  if (!current || current.id !== session.tournamentId) {
-    throw apiError("현재 참가 신청 대회가 변경되었습니다. 다시 로그인해 주세요.", 409, "EVENT_CHANGED");
-  }
-  const state = tournamentState(current);
-  if (!state.open) throw apiError(state.message, 403, "SURVEY_CLOSED");
+  const { school, tournament: current } = await requireSchoolContext(request, env);
 
   const body = await readJson<{
+    tournamentId?: string;
+    schoolId?: string;
     revision?: number;
     noParticipation?: boolean;
     selections?: Array<{ divisionId?: string; teamCount?: number }>;
   }>(request);
+  if (typeof body.tournamentId !== "string" || !body.tournamentId || typeof body.schoolId !== "string" || !body.schoolId) {
+    throw apiError("안전한 신청 저장을 위해 페이지를 새로고침한 후 다시 로그인해 주세요.", 409, "EVENT_CHANGED");
+  }
+  assertExpectedTournament(request, current.id, body.tournamentId);
+  assertExpectedSchool(request, school.id, body.schoolId);
   const noParticipation = body.noParticipation === true;
   const selections = Array.isArray(body.selections) ? body.selections : [];
   if (selections.length > 30) throw apiError("선택한 종별이 너무 많습니다.");
@@ -547,8 +636,8 @@ async function saveSurvey(request: Request, env: Env): Promise<Response> {
        s.max_teams_per_school AS maxTeamsPerSchool,
        s.max_teams_per_division AS maxTeamsPerDivision
      FROM divisions d JOIN sports s ON s.id = d.sport_id
-     WHERE s.tournament_id = ? AND s.active = 1 AND d.active = 1`,
-  ).bind(current.id).all<{
+     WHERE s.tournament_id = ? AND s.active = 1 AND d.active = 1 AND d.school_level = ?`,
+  ).bind(current.id, school.schoolLevel).all<{
     divisionId: string;
     divisionName: string;
     sportId: string;
@@ -580,7 +669,7 @@ async function saveSurvey(request: Request, env: Env): Promise<Response> {
 
   const existing = await env.DB.prepare(
     "SELECT revision FROM responses WHERE tournament_id = ? AND school_id = ?",
-  ).bind(current.id, session.schoolId).first<{ revision: number }>();
+  ).bind(current.id, school.id).first<{ revision: number }>();
   const currentRevision = Number(existing?.revision ?? 0);
   const suppliedRevision = Number(body.revision ?? 0);
   if (!Number.isInteger(suppliedRevision) || suppliedRevision !== currentRevision) {
@@ -594,16 +683,19 @@ async function saveSurvey(request: Request, env: Env): Promise<Response> {
          no_participation = excluded.no_participation,
          revision = responses.revision + 1,
          updated_at = CURRENT_TIMESTAMP`,
-    ).bind(current.id, session.schoolId, noParticipation ? 1 : 0),
-    env.DB.prepare("DELETE FROM response_items WHERE tournament_id = ? AND school_id = ?").bind(current.id, session.schoolId),
+    ).bind(current.id, school.id, noParticipation ? 1 : 0),
+    env.DB.prepare("DELETE FROM response_items WHERE tournament_id = ? AND school_id = ?").bind(current.id, school.id),
     ...normalized.map((item) => env.DB.prepare(
       "INSERT INTO response_items (tournament_id, school_id, division_id, team_count) VALUES (?, ?, ?, ?)",
-    ).bind(current.id, session.schoolId, item.divisionId, item.teamCount)),
+    ).bind(current.id, school.id, item.divisionId, item.teamCount)),
   ];
   try {
     await env.DB.batch(statements);
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
+    if (/SURVEY_NOT_WRITABLE/iu.test(message)) {
+      throw apiError("저장 직전에 신청 기간 또는 공개·대상 학교 설정이 변경되었습니다. 새로고침 후 신청 상태를 확인해 주세요.", 403, "SURVEY_CLOSED");
+    }
     if (/DIVISION_TEAM_LIMIT_EXCEEDED/iu.test(message)) {
       throw apiError("저장 직전에 한 종별 최대 팀 수가 변경되었습니다. 최신 화면에서 팀 수를 다시 확인해 주세요.", 409, "TEAM_LIMIT_CHANGED");
     }
@@ -615,7 +707,7 @@ async function saveSurvey(request: Request, env: Env): Promise<Response> {
     }
     throw error;
   }
-  const saved = await getSurvey(env.DB, current.id, session.schoolId);
+  const saved = await getSurvey(env.DB, current.id, school.id);
   return json({ ok: true, survey: saved });
 }
 
@@ -823,7 +915,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
   const eventId = new URL(request.url).searchParams.get("eventId");
   const eventsResult = await env.DB.prepare(
     `SELECT id, academic_year AS academicYear, name, survey_start AS surveyStart,
-       survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy, logo_key AS logoKey FROM tournaments ORDER BY academic_year DESC, created_at DESC`,
+       survey_end AS surveyEnd, status, card_copy AS cardCopy, header_copy AS headerCopy, logo_key AS logoKey, school_levels AS schoolLevels FROM tournaments ORDER BY academic_year DESC, created_at DESC`,
   ).all<TournamentRow>();
   const active = await activeTournament(env.DB);
   const selectedId = eventId && eventsResult.results.some((event) => event.id === eventId)
@@ -835,11 +927,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
   }
   const [sports, schoolsResult, responsesResult, itemsResult] = await Promise.all([
     sportsForTournament(env.DB, selectedId, false),
-    env.DB.prepare("SELECT id, name, display_order AS displayOrder FROM schools WHERE active = 1 ORDER BY display_order").all<{
-      id: string;
-      name: string;
-      displayOrder: number;
-    }>(),
+    eligibleSchools(env.DB, selectedEvent),
     env.DB.prepare(
       `SELECT school_id AS schoolId, no_participation AS noParticipation,
          revision, updated_at AS updatedAt FROM responses WHERE tournament_id = ?`,
@@ -865,12 +953,146 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
   });
   return json({
     adminUsername: credential.username,
+    defaultEventId: active?.id ?? null,
     events: eventsResult.results,
     selectedEvent,
     surveyState: tournamentState(selectedEvent),
     sports,
     rows,
   });
+}
+
+async function adminSchools(request: Request, env: Env): Promise<Response> {
+  await requireSession(request, env.DB, "admin");
+  const result = await env.DB.prepare(
+    `SELECT id, name, school_level AS schoolLevel, display_order AS displayOrder, active, created_at AS createdAt
+     FROM schools ORDER BY CASE school_level WHEN 'elementary' THEN 0 ELSE 1 END, display_order, name`,
+  ).all<{ id: string; name: string; schoolLevel: SchoolLevel; displayOrder: number; active: number; createdAt: string }>();
+  return json({ schools: result.results.map((school) => ({ ...school, active: Boolean(school.active), displayOrder: Number(school.displayOrder) })) });
+}
+
+function institutionCodeInput(value: unknown, level: SchoolLevel): string {
+  if (typeof value !== "string" || value.length > 40) throw apiError("학교 기관번호를 확인해 주세요.", 400, "INVALID_INSTITUTION_CODE");
+  const code = normalizeSchoolPasswordInput(value);
+  const pattern = level === "elementary" ? /^동(?:나|너)\d{2,4}$/u : /^동(?:다|더)\d{2,4}$/u;
+  if (!pattern.test(code)) throw apiError(level === "elementary" ? "초등학교 기관번호는 동나 또는 동너 뒤 숫자 2~4자리로 입력해 주세요." : "중학교 기관번호는 동다 또는 동더 뒤 숫자 2~4자리로 입력해 주세요.", 400, "INVALID_INSTITUTION_CODE");
+  return code;
+}
+
+async function institutionFingerprint(code: string, pepper: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pepper), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return toBase64Url(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`school-institution-v1|${code}`))));
+}
+
+async function assertInstitutionCodeAvailable(env: Env, code: string, level: SchoolLevel, fingerprint: string, excludeId = "") {
+  if (await env.DB.prepare("SELECT id FROM schools WHERE institution_fingerprint = ? AND id <> ?").bind(fingerprint, excludeId).first()) {
+    throw apiError("이미 등록된 학교 기관번호입니다. 기관번호를 다시 확인해 주세요.", 409, "DUPLICATE_INSTITUTION_CODE");
+  }
+  // Legacy records have individually salted hashes, never recoverable institution codes.
+  // Verify against those hashes before writing; no codes enter audit records or responses.
+  const existing = await env.DB.prepare(
+    `SELECT password_salt AS passwordSalt, password_hash AS passwordHash, password_iterations AS passwordIterations
+     FROM schools WHERE school_level = ? AND id <> ?`,
+  ).bind(level, excludeId).all<SchoolCredentialSnapshot>();
+  for (let offset = 0; offset < existing.results.length; offset += 8) {
+    const duplicate = await Promise.all(existing.results.slice(offset, offset + 8).map(async (school) => constantTimeEqual(
+      await hashSchoolPassword(code, env.SCHOOL_PASSWORD_PEPPER!, school.passwordSalt, Number(school.passwordIterations)), school.passwordHash,
+    )));
+    if (duplicate.some(Boolean)) throw apiError("이미 등록된 학교 기관번호입니다. 기관번호를 다시 확인해 주세요.", 409, "DUPLICATE_INSTITUTION_CODE");
+  }
+}
+
+async function addSchool(request: Request, env: Env): Promise<Response> {
+  await requireSession(request, env.DB, "admin");
+  if (!env.SCHOOL_PASSWORD_PEPPER) throw apiError("학교 로그인 보안 설정이 필요합니다.", 503, "SECRET_MISSING");
+  const body = await readJson<{ name?: unknown; schoolLevel?: unknown; institutionCode?: unknown }>(request);
+  if (typeof body.name !== "string") throw apiError("학교명을 입력해 주세요.");
+  const name = cleanText(body.name, "학교명", 80);
+  if (/[\u0000-\u001f\u007f]/u.test(name)) throw apiError("학교명에는 줄바꿈이나 제어 문자를 사용할 수 없습니다.");
+  const level = body.schoolLevel;
+  if (level !== "elementary" && level !== "middle") throw apiError("학교급을 선택해 주세요.", 400, "INVALID_SCHOOL_LEVEL");
+  const code = institutionCodeInput(body.institutionCode, level);
+  if (await env.DB.prepare("SELECT id FROM schools WHERE name = ?").bind(name).first()) throw apiError("같은 이름의 학교가 이미 등록되어 있습니다.", 409, "DUPLICATE_SCHOOL");
+
+  const pepper = env.SCHOOL_PASSWORD_PEPPER;
+  const fingerprint = await institutionFingerprint(code, pepper);
+  await assertInstitutionCodeAvailable(env, code, level, fingerprint);
+  // Identity is stable and independent from the mutable credential fingerprint.
+  const id = `school-custom-${crypto.randomUUID()}`;
+  const salt = randomToken(16);
+  const hash = await hashSchoolPassword(code, pepper, salt, 25_000);
+  const createdAt = new Date().toISOString();
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO schools (id, name, school_level, display_order, password_salt, password_hash, password_iterations, institution_fingerprint, eligible_from, created_at, updated_at)
+         SELECT ?, ?, ?, COALESCE(MAX(display_order), 0) + 1, ?, ?, 25000, ?, ?, ?, ? FROM schools WHERE school_level = ?`,
+      ).bind(id, name, level, salt, hash, fingerprint, createdAt, createdAt, createdAt, level),
+      auditStatement(env.DB, "CREATE", "school", id, { name, schoolLevel: level }),
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/UNIQUE constraint failed: schools\.institution_fingerprint/iu.test(message)) throw apiError("이미 등록된 학교 기관번호입니다. 기관번호를 다시 확인해 주세요.", 409, "DUPLICATE_INSTITUTION_CODE");
+    if (/UNIQUE constraint failed: schools\.name/iu.test(message)) throw apiError("같은 이름의 학교가 이미 등록되어 있습니다.", 409, "DUPLICATE_SCHOOL");
+    if (/UNIQUE constraint failed/iu.test(message)) throw apiError("다른 관리자가 학교를 추가했습니다. 새로고침 후 다시 시도해 주세요.", 409, "SCHOOL_ORDER_CONFLICT");
+    throw apiError("학교를 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503, "SAVE_FAILED");
+  }
+  const school = await env.DB.prepare("SELECT id, name, school_level AS schoolLevel, display_order AS displayOrder, created_at AS createdAt FROM schools WHERE id = ?").bind(id).first();
+  return json({ ok: true, id, school }, 201);
+}
+
+async function updateSchoolInstitutionCode(request: Request, env: Env, schoolId: string): Promise<Response> {
+  await requireSession(request, env.DB, "admin");
+  if (!env.SCHOOL_PASSWORD_PEPPER) throw apiError("학교 로그인 보안 설정이 필요합니다.", 503, "SECRET_MISSING");
+  const id = cleanText(schoolId, "학교", 80);
+  const school = await env.DB.prepare(
+    `SELECT id, name, school_level AS schoolLevel, display_order AS displayOrder,
+       password_salt AS passwordSalt, password_hash AS passwordHash, password_iterations AS passwordIterations
+     FROM schools WHERE id = ?`,
+  ).bind(id).first<SchoolCredentialSnapshot & { id: string; name: string; schoolLevel: SchoolLevel; displayOrder: number }>();
+  if (!school) throw apiError("학교를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  const body = await readJson<{ institutionCode?: unknown }>(request);
+  const code = institutionCodeInput(body.institutionCode, school.schoolLevel);
+  const pepper = env.SCHOOL_PASSWORD_PEPPER;
+  const publicSchool = { id: school.id, name: school.name, schoolLevel: school.schoolLevel, displayOrder: Number(school.displayOrder) };
+  const unchanged = constantTimeEqual(await hashSchoolPassword(code, pepper, school.passwordSalt, Number(school.passwordIterations)), school.passwordHash);
+  if (unchanged) {
+    const current = await env.DB.prepare("SELECT id FROM schools WHERE id = ? AND password_salt = ? AND password_hash = ? AND password_iterations = ?")
+      .bind(id, school.passwordSalt, school.passwordHash, school.passwordIterations).first();
+    if (!current) throw apiError("다른 관리자가 기관번호를 변경했습니다. 새로고침 후 다시 확인해 주세요.", 409, "SCHOOL_CREDENTIAL_CHANGED");
+    return json({ ok: true, changed: false, school: publicSchool, sessionsRevoked: 0 });
+  }
+  const fingerprint = await institutionFingerprint(code, pepper);
+  await assertInstitutionCodeAvailable(env, code, school.schoolLevel, fingerprint, id);
+  const salt = randomToken(16);
+  const hash = await hashSchoolPassword(code, pepper, salt, 25_000);
+  let results: D1Result[];
+  try {
+    results = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE schools SET password_salt = ?, password_hash = ?, password_iterations = 25000,
+           institution_fingerprint = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND password_salt = ? AND password_hash = ? AND password_iterations = ?`,
+      ).bind(salt, hash, fingerprint, id, school.passwordSalt, school.passwordHash, school.passwordIterations),
+      env.DB.prepare(
+        `INSERT INTO admin_audit_logs (id, action, entity_type, entity_id, detail)
+         SELECT ?, 'UPDATE', 'school_institution_code', ?, json_object('sessionsRevoked', (
+           SELECT COUNT(*) FROM sessions WHERE actor_type = 'school' AND school_id = ?
+         )) WHERE EXISTS (SELECT 1 FROM schools WHERE id = ? AND password_salt = ? AND password_hash = ?)`,
+      ).bind(crypto.randomUUID(), id, id, id, salt, hash),
+      env.DB.prepare(
+        `DELETE FROM sessions WHERE actor_type = 'school' AND school_id = ?
+         AND EXISTS (SELECT 1 FROM schools WHERE id = ? AND password_salt = ? AND password_hash = ?)`,
+      ).bind(id, id, salt, hash),
+    ]);
+  } catch (error) {
+    if (error instanceof Error && /UNIQUE constraint failed: schools\.institution_fingerprint/iu.test(error.message)) {
+      throw apiError("이미 등록된 학교 기관번호입니다. 기관번호를 다시 확인해 주세요.", 409, "DUPLICATE_INSTITUTION_CODE");
+    }
+    throw apiError("기관번호를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503, "SAVE_FAILED");
+  }
+  if (!results[0].meta.changes) throw apiError("다른 관리자가 기관번호를 변경했습니다. 새로고침 후 다시 확인해 주세요.", 409, "SCHOOL_CREDENTIAL_CHANGED");
+  return json({ ok: true, changed: true, school: publicSchool, sessionsRevoked: Number(results[2].meta.changes) });
 }
 
 function auditStatement(db: D1Database, action: string, entityType: string, entityId: string | null, detail: unknown) {
@@ -897,7 +1119,12 @@ function validateEventPayload(body: { academicYear?: number; name?: string; surv
   return { academicYear, name, surveyStart, surveyEnd };
 }
 
-async function createDefaultSports(db: D1Database, tournamentId: string): Promise<void> {
+function eventSchoolLevels(value: unknown): SchoolLevel[] {
+  try { return validateSchoolLevels(value) as SchoolLevel[]; }
+  catch (error) { throw apiError(error instanceof Error ? error.message : "참가 대상 학교급을 확인해 주세요.", 400, "INVALID_SCHOOL_LEVELS"); }
+}
+
+function defaultSportsStatements(db: D1Database, tournamentId: string, levels: SchoolLevel[]): D1PreparedStatement[] {
   const definitions = [
     { name: "배구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 2 },
     { name: "3x3 농구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 1 },
@@ -919,32 +1146,41 @@ async function createDefaultSports(db: D1Database, tournamentId: string): Promis
       definition.maxTeamsPerSchool,
       definition.maxTeamsPerDivision,
     ));
-    ["남중부", "여중부"].forEach((name, divisionIndex) => {
+    const defaults = SCHOOL_LEVELS.filter((level) => levels.includes(level.value as SchoolLevel))
+      .flatMap((level) => [level.maleDivision, level.femaleDivision].map((name) => ({ name, schoolLevel: level.value })));
+    defaults.forEach((division, divisionIndex) => {
       statements.push(db.prepare(
-        "INSERT INTO divisions (id, sport_id, name, display_order) VALUES (?, ?, ?, ?)",
-      ).bind(crypto.randomUUID(), sportId, name, divisionIndex + 1));
+        "INSERT INTO divisions (id, sport_id, name, school_level, display_order) VALUES (?, ?, ?, ?, ?)",
+      ).bind(crypto.randomUUID(), sportId, division.name, division.schoolLevel, divisionIndex + 1));
     });
   });
-  await db.batch(statements);
+  return statements;
 }
 
 async function createEvent(request: Request, env: Env): Promise<Response> {
   await requireSession(request, env.DB, "admin");
-  const body = await readJson<{ academicYear?: number; name?: string; surveyStart?: string; surveyEnd?: string }>(request);
+  const body = await readJson<{ academicYear?: number; name?: string; surveyStart?: string; surveyEnd?: string; schoolLevels?: unknown }>(request);
   const payload = validateEventPayload(body);
+  const levels = body.schoolLevels === undefined ? ["middle"] as SchoolLevel[] : eventSchoolLevels(body.schoolLevels);
   const id = crypto.randomUUID();
-  await env.DB.prepare(
-    "INSERT INTO tournaments (id, academic_year, name, survey_start, survey_end, status) VALUES (?, ?, ?, ?, ?, 'draft')",
-  ).bind(id, payload.academicYear, payload.name, payload.surveyStart, payload.surveyEnd).run();
-  await createDefaultSports(env.DB, id);
-  await audit(env.DB, "CREATE", "tournament", id, payload);
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO tournaments (id, academic_year, name, survey_start, survey_end, school_levels, status) VALUES (?, ?, ?, ?, ?, ?, 'draft')",
+    ).bind(id, payload.academicYear, payload.name, payload.surveyStart, payload.surveyEnd, JSON.stringify(levels)),
+    ...defaultSportsStatements(env.DB, id, levels),
+    auditStatement(env.DB, "CREATE", "tournament", id, { ...payload, schoolLevels: levels }),
+  ]);
   return json({ ok: true, id }, 201);
 }
 
 async function updateEvent(request: Request, env: Env, eventId: string): Promise<Response> {
   await requireSession(request, env.DB, "admin");
-  if (!await tournamentById(env.DB, eventId)) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
-  const body = await readJson<{ academicYear?: number; name?: string; surveyStart?: string; surveyEnd?: string }>(request);
+  const tournament = await tournamentById(env.DB, eventId);
+  if (!tournament) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  const body = await readJson<{ academicYear?: number; name?: string; surveyStart?: string; surveyEnd?: string; schoolLevels?: unknown }>(request);
+  if (body.schoolLevels !== undefined && JSON.stringify(eventSchoolLevels(body.schoolLevels)) !== JSON.stringify(schoolLevels(tournament.schoolLevels))) {
+    throw apiError("기존 대회와 신청을 보존하기 위해 대상 학교급은 변경할 수 없습니다. 원하는 학교급으로 새 대회를 추가해 주세요.", 409, "SCHOOL_LEVELS_IMMUTABLE");
+  }
   const payload = validateEventPayload(body);
   await env.DB.prepare(
     `UPDATE tournaments SET academic_year = ?, name = ?, survey_start = ?, survey_end = ?,
@@ -1022,9 +1258,8 @@ async function updateLogoImage(request: Request, env: Env, eventId: string): Pro
 async function getLogoImage(request: Request, env: Env, eventId: string, version: string): Promise<Response> {
   const tournament = await tournamentById(env.DB, eventId);
   if (!tournament || !tournament.logoKey || tournament.logoKey !== version) throw apiError("로고 이미지를 찾을 수 없습니다.", 404, "NOT_FOUND");
-  const active = await activeTournament(env.DB);
   // Draft and archived-event logos must not be exposed via a guessed URL.
-  if (active?.id !== eventId || tournament.status !== "active") await requireSession(request, env.DB, "admin");
+  if (tournament.status !== "active") await requireSession(request, env.DB, "admin");
   if (!env.LOGO_FILES) throw apiError("로고 저장소에 연결할 수 없습니다.", 503, "STORAGE_UNAVAILABLE");
   const object = await env.LOGO_FILES.get(logoObjectKey(eventId, version));
   if (!object) throw apiError("로고 이미지를 찾을 수 없습니다.", 404, "NOT_FOUND");
@@ -1054,15 +1289,40 @@ async function activateEvent(request: Request, env: Env, eventId: string): Promi
   await requireSession(request, env.DB, "admin");
   if (!await tournamentById(env.DB, eventId)) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
   await env.DB.batch([
-    env.DB.prepare("UPDATE tournaments SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE status = 'active' AND id <> ?").bind(eventId),
     env.DB.prepare("UPDATE tournaments SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(eventId),
     env.DB.prepare(
       `INSERT INTO app_config (id, active_tournament_id) VALUES (1, ?)
        ON CONFLICT(id) DO UPDATE SET active_tournament_id = excluded.active_tournament_id, updated_at = CURRENT_TIMESTAMP`,
     ).bind(eventId),
+    auditStatement(env.DB, "PUBLISH", "tournament", eventId, {}),
   ]);
-  await audit(env.DB, "ACTIVATE", "tournament", eventId, {});
   return json({ ok: true });
+}
+
+async function unpublishEvent(request: Request, env: Env, eventId: string): Promise<Response> {
+  await requireSession(request, env.DB, "admin");
+  if (!await tournamentById(env.DB, eventId)) throw apiError("신청를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  await env.DB.batch([
+    env.DB.prepare("UPDATE tournaments SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(eventId),
+    env.DB.prepare(
+      `UPDATE app_config SET active_tournament_id = (
+         SELECT id FROM tournaments WHERE status = 'active' AND id <> ?
+         ORDER BY CASE WHEN julianday(survey_start) <= julianday('now') AND julianday(survey_end) > julianday('now') THEN 0 ELSE 1 END,
+           academic_year DESC, created_at DESC, id LIMIT 1
+       ), updated_at = CURRENT_TIMESTAMP WHERE id = 1 AND active_tournament_id = ?`,
+    ).bind(eventId, eventId),
+    auditStatement(env.DB, "UNPUBLISH", "tournament", eventId, {}),
+  ]);
+  return json({ ok: true });
+}
+
+function divisionSchoolLevel(value: unknown, tournament: TournamentRow, existing?: DivisionRow): SchoolLevel {
+  const levels = schoolLevels(tournament.schoolLevels);
+  const selected = value === undefined ? existing?.schoolLevel ?? (levels.length === 1 && levels[0] === "middle" ? "middle" : undefined) : value;
+  if ((selected !== "elementary" && selected !== "middle") || !levels.includes(selected)) {
+    throw apiError("각 종별의 학교급을 이번 대회의 참가 대상 학교급에서 선택해 주세요.", 400, "INVALID_DIVISION_SCHOOL_LEVEL");
+  }
+  return selected;
 }
 
 async function addSport(request: Request, env: Env): Promise<Response> {
@@ -1070,15 +1330,20 @@ async function addSport(request: Request, env: Env): Promise<Response> {
   const body = await readJson<{
     eventId?: string;
     name?: string;
-    divisions?: string[];
+    divisions?: Array<string | { name?: string; schoolLevel?: unknown }>;
     maxTeamsPerSchool?: number;
     maxTeamsPerDivision?: number;
   }>(request);
   const eventId = cleanText(body.eventId, "대회", 80);
-  if (!await tournamentById(env.DB, eventId)) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
+  const tournament = await tournamentById(env.DB, eventId);
+  if (!tournament) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
   const name = cleanText(body.name, "종목명", 40);
-  const divisionNames = [...new Set((Array.isArray(body.divisions) ? body.divisions : []).map((value) => cleanText(value, "종별명", 30)))];
-  if (!divisionNames.length || divisionNames.length > 8) throw apiError("종별을 1개 이상 8개 이하로 입력해 주세요.");
+  if (!Array.isArray(body.divisions) || !body.divisions.length || body.divisions.length > 8) throw apiError("종별을 1개 이상 8개 이하로 입력해 주세요.");
+  const requestedDivisions = body.divisions.map((division) => ({
+    name: cleanText(typeof division === "string" ? division : division?.name, "종별명", 30),
+    schoolLevel: divisionSchoolLevel(typeof division === "string" ? undefined : division?.schoolLevel, tournament),
+  }));
+  if (new Set(requestedDivisions.map((division) => division.name)).size !== requestedDivisions.length) throw apiError("같은 종별명을 두 번 사용할 수 없습니다.");
   const limitConfiguration = validateTeamLimitConfiguration(
     body.maxTeamsPerSchool ?? 2,
     body.maxTeamsPerDivision ?? 1,
@@ -1103,14 +1368,14 @@ async function addSport(request: Request, env: Env): Promise<Response> {
       maxTeamsPerSchool,
       maxTeamsPerDivision,
     ),
-    ...divisionNames.map((divisionName, index) => env.DB.prepare(
-      "INSERT INTO divisions (id, sport_id, name, display_order) VALUES (?, ?, ?, ?)",
-    ).bind(crypto.randomUUID(), sportId, divisionName, index + 1)),
+    ...requestedDivisions.map((division, index) => env.DB.prepare(
+      "INSERT INTO divisions (id, sport_id, name, school_level, display_order) VALUES (?, ?, ?, ?, ?)",
+    ).bind(crypto.randomUUID(), sportId, division.name, division.schoolLevel, index + 1)),
   ]);
   await audit(env.DB, "CREATE", "sport", sportId, {
     eventId,
     name,
-    divisionNames,
+    divisions: requestedDivisions,
     maxTeamsPerSchool,
     maxTeamsPerDivision,
   });
@@ -1158,9 +1423,11 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
   ).bind(sportId).first<SportDetailRow>();
   if (!sport) throw apiError("종목을 찾을 수 없습니다.", 404, "NOT_FOUND");
 
+  const tournament = await tournamentById(env.DB, sport.tournamentId);
+  if (!tournament) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
   const body = await readJson<{
     name?: string;
-    divisions?: Array<{ id?: string; name?: string }>;
+    divisions?: Array<{ id?: string; name?: string; schoolLevel?: unknown }>;
     maxTeamsPerSchool?: number;
     maxTeamsPerDivision?: number;
   }>(request);
@@ -1175,22 +1442,23 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
     throw apiError("종별을 1개 이상 8개 이하로 입력해 주세요.");
   }
 
-  const normalizedDivisions = body.divisions.map((division) => {
+  const requestedDivisions = body.divisions.map((division) => {
+    if (!division || typeof division !== "object") throw apiError("종별 정보를 다시 확인해 주세요.");
     const id = typeof division.id === "string" && division.id.trim() ? division.id.trim() : null;
     if (id && id.length > 80) throw apiError("종별 정보를 다시 확인해 주세요.");
-    return { id, name: cleanText(division.name, "종별명", 30) };
+    return { id, name: cleanText(division.name, "종별명", 30), schoolLevel: division.schoolLevel };
   });
-  if (new Set(normalizedDivisions.map((division) => division.name)).size !== normalizedDivisions.length) {
+  if (new Set(requestedDivisions.map((division) => division.name)).size !== requestedDivisions.length) {
     throw apiError("같은 종별명을 두 번 사용할 수 없습니다.");
   }
-  const requestedExistingIds = normalizedDivisions.flatMap((division) => division.id ? [division.id] : []);
+  const requestedExistingIds = requestedDivisions.flatMap((division) => division.id ? [division.id] : []);
   if (new Set(requestedExistingIds).size !== requestedExistingIds.length) {
     throw apiError("종별 정보를 다시 확인해 주세요.");
   }
 
   const [existingDivisionsResult, sportNameConflict] = await Promise.all([
     env.DB.prepare(
-      "SELECT id, sport_id AS sportId, name, display_order AS displayOrder, active FROM divisions WHERE sport_id = ? ORDER BY display_order, name",
+      "SELECT id, sport_id AS sportId, name, school_level AS schoolLevel, display_order AS displayOrder, active FROM divisions WHERE sport_id = ? ORDER BY display_order, name",
     ).bind(sportId).all<DivisionRow>(),
     env.DB.prepare("SELECT id FROM sports WHERE tournament_id = ? AND name = ? AND id <> ?")
       .bind(sport.tournamentId, name, sportId).first<{ id: string }>(),
@@ -1199,6 +1467,9 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
 
   const existingDivisions = existingDivisionsResult.results;
   const existingById = new Map(existingDivisions.map((division) => [division.id, division]));
+  const normalizedDivisions = requestedDivisions.map((division) => ({
+    ...division, schoolLevel: divisionSchoolLevel(division.schoolLevel, tournament, division.id ? existingById.get(division.id) : undefined),
+  }));
   for (const division of normalizedDivisions) {
     if (division.id && !existingById.has(division.id)) {
       throw apiError("다른 종목의 종별은 수정할 수 없습니다.", 400, "INVALID_DIVISION");
@@ -1221,6 +1492,11 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
     ).bind(...existingIds).all<{ divisionId: string; responseCount: number }>()
     : { results: [] as Array<{ divisionId: string; responseCount: number }> };
   const usageByDivision = new Map(usageRows.results.map((row) => [row.divisionId, Number(row.responseCount)]));
+  for (const division of normalizedDivisions) {
+    if (division.id && existingById.get(division.id)?.schoolLevel !== division.schoolLevel && (usageByDivision.get(division.id) ?? 0) > 0) {
+      throw apiError("저장된 신청이 있는 종별의 학교급은 변경할 수 없습니다. 새 종별을 추가해 주세요.", 409, "DIVISION_SCHOOL_LEVEL_IN_USE");
+    }
+  }
   const removedDivisions = existingDivisions.filter((division) => !requestedIdSet.has(division.id));
   const usedRemovedDivisions = removedDivisions.filter((division) => (usageByDivision.get(division.id) ?? 0) > 0);
   if (usedRemovedDivisions.length) {
@@ -1282,12 +1558,12 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
   normalizedDivisions.forEach((division, index) => {
     if (division.id) {
       statements.push(env.DB.prepare(
-        "UPDATE divisions SET name = ?, display_order = ?, active = 1 WHERE id = ?",
-      ).bind(division.name, index + 1, division.id));
+        "UPDATE divisions SET name = ?, school_level = ?, display_order = ?, active = 1 WHERE id = ?",
+      ).bind(division.name, division.schoolLevel, index + 1, division.id));
     } else {
       statements.push(env.DB.prepare(
-        "INSERT INTO divisions (id, sport_id, name, display_order, active) VALUES (?, ?, ?, ?, 1)",
-      ).bind(crypto.randomUUID(), sportId, division.name, index + 1));
+        "INSERT INTO divisions (id, sport_id, name, school_level, display_order, active) VALUES (?, ?, ?, ?, ?, 1)",
+      ).bind(crypto.randomUUID(), sportId, division.name, division.schoolLevel, index + 1));
     }
   });
   statements.push(auditStatement(env.DB, "UPDATE", "sport", sportId, {
@@ -1296,7 +1572,7 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
       teamCountEnabled: Boolean(sport.teamCountEnabled),
       maxTeamsPerSchool: Number(sport.maxTeamsPerSchool),
       maxTeamsPerDivision: Number(sport.maxTeamsPerDivision),
-      divisions: existingDivisions.map((division) => ({ id: division.id, name: division.name })),
+      divisions: existingDivisions.map((division) => ({ id: division.id, name: division.name, schoolLevel: division.schoolLevel })),
     },
     after: { name, teamCountEnabled, maxTeamsPerSchool, maxTeamsPerDivision, divisions: normalizedDivisions },
   }));
@@ -1304,6 +1580,9 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
     await env.DB.batch(statements);
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
+    if (/DIVISION_SCHOOL_LEVEL_IN_USE/iu.test(message)) {
+      throw apiError("방금 저장된 신청이 있어 종별의 학교급을 변경할 수 없습니다. 새로고침 후 다시 확인해 주세요.", 409, "DIVISION_SCHOOL_LEVEL_IN_USE");
+    }
     if (/MAX_TEAMS_PER_DIVISION_IN_USE/iu.test(message)) {
       throw apiError("방금 저장된 신청 내역과 한 종별 최대 팀 수가 충돌합니다. 새로고침 후 다시 확인해 주세요.", 409, "MAX_TEAMS_PER_DIVISION_IN_USE");
     }
@@ -1359,7 +1638,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (request.method === "OPTIONS") return new Response(null, { status: 204 });
     const path = new URL(request.url).pathname.replace(/^\/api\/?/u, "");
 
-    if (request.method === "GET" && path === "bootstrap") return json(await publicBootstrap(env.DB));
+    if (request.method === "GET" && path === "bootstrap") return json(await publicBootstrap(request, env.DB));
     if (request.method === "POST" && path === "school/login") return await schoolLogin(request, env);
     if (request.method === "GET" && path === "school/session") return await schoolSession(request, env);
     if (request.method === "GET" && path === "school/participants") return await schoolParticipants(request, env);
@@ -1368,10 +1647,14 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (request.method === "POST" && path === "admin/login") return await adminLogin(request, env);
     if (request.method === "POST" && path === "admin/logout") return await logout(request, env, "admin");
     if (request.method === "GET" && path === "admin/dashboard") return await adminDashboard(request, env);
+    if (request.method === "GET" && path === "admin/schools") return await adminSchools(request, env);
+    if (request.method === "POST" && path === "admin/schools") return await addSchool(request, env);
     if (request.method === "PATCH" && path === "admin/credentials") return await updateAdminCredentials(request, env);
     if (request.method === "POST" && path === "admin/events") return await createEvent(request, env);
     if (request.method === "POST" && path === "admin/sports") return await addSport(request, env);
 
+    const schoolCodeUpdate = path.match(/^admin\/schools\/([^/]+)\/institution-code$/u);
+    if (schoolCodeUpdate && request.method === "PATCH") return await updateSchoolInstitutionCode(request, env, decodeURIComponent(schoolCodeUpdate[1]));
     const eventUpdate = path.match(/^admin\/events\/([^/]+)$/u);
     if (eventUpdate && request.method === "PATCH") return await updateEvent(request, env, decodeURIComponent(eventUpdate[1]));
     const eventCardUpdate = path.match(/^admin\/events\/([^/]+)\/card-copy$/u);
@@ -1384,6 +1667,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (logoRead && request.method === "GET") return await getLogoImage(request, env, decodeURIComponent(logoRead[1]), logoRead[2]);
     const eventActivate = path.match(/^admin\/events\/([^/]+)\/activate$/u);
     if (eventActivate && request.method === "POST") return await activateEvent(request, env, decodeURIComponent(eventActivate[1]));
+    const eventUnpublish = path.match(/^admin\/events\/([^/]+)\/unpublish$/u);
+    if (eventUnpublish && request.method === "POST") return await unpublishEvent(request, env, decodeURIComponent(eventUnpublish[1]));
     const sportToggle = path.match(/^admin\/sports\/([^/]+)\/active$/u);
     if (sportToggle && request.method === "PATCH") return await toggleSport(request, env, decodeURIComponent(sportToggle[1]));
     const sportUpdate = path.match(/^admin\/sports\/([^/]+)$/u);

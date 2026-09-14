@@ -1,3 +1,5 @@
+import { schoolLevelsLabel } from "./school-levels.js";
+
 // Plain-text, per-tournament presentation settings. Dates, sports and school totals
 // are always read from live tournament data rather than administrator copy.
 export const EVENT_CARD_FIELDS = [
@@ -53,7 +55,7 @@ export function eventCardCopy(tournament, override) {
     title: isDongbu ? "동부동락" : (tournament?.name ?? "대회 준비 중"),
     subtitle: isDongbu ? "학교스포츠클럽대회" : "",
     description: `${year}학년도${secondHalf ? " 하반기" : ""} 참가 신청`,
-    target: "동부 관내 중학교",
+    target: `동부 관내 ${schoolLevelsLabel(tournament?.schoolLevels)}`,
     footer: "학교별 온라인 신청",
   };
   let saved = {};

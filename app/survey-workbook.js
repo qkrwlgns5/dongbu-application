@@ -1,3 +1,5 @@
+import { SCHOOL_LEVELS, schoolLevels, schoolLevelsLabel } from "./school-levels.js";
+
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 const COLORS = {
@@ -138,6 +140,14 @@ function fileTimestamp(date) {
   return `${part("year")}${part("month")}${part("day")}_${part("hour")}${part("minute")}`;
 }
 
+function schoolLevel(value) {
+  return value === "elementary" ? "elementary" : "middle";
+}
+
+function schoolLevelOrder(value) {
+  return schoolLevel(value) === "elementary" ? 0 : 1;
+}
+
 function sortedSports(dashboard) {
   return [...dashboard.sports]
     .sort((left, right) => left.displayOrder - right.displayOrder)
@@ -145,19 +155,23 @@ function sortedSports(dashboard) {
       ...sport,
       name: cleanText(sport.name) || "이름 없는 종목",
       divisions: [...sport.divisions]
-        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .sort((left, right) => schoolLevelOrder(left.schoolLevel) - schoolLevelOrder(right.schoolLevel)
+          || left.displayOrder - right.displayOrder)
         .map((division) => ({ ...division, name: cleanText(division.name) || "이름 없는 종별" })),
     }));
 }
 
 function sortedRows(dashboard) {
   return [...dashboard.rows]
-    .sort((left, right) => left.school.displayOrder - right.school.displayOrder)
+    .sort((left, right) => schoolLevelOrder(left.school.schoolLevel) - schoolLevelOrder(right.school.schoolLevel)
+      || left.school.displayOrder - right.school.displayOrder)
     .map((row) => ({ ...row, school: { ...row.school, name: cleanText(row.school.name) || "이름 없는 학교" } }));
 }
 
 function selectionCount(row, sport, divisionId) {
   if (!row.submitted || row.noParticipation) return 0;
+  const division = sport.divisions.find((candidate) => candidate.id === divisionId);
+  if (!division || schoolLevel(division.schoolLevel) !== schoolLevel(row.school.schoolLevel)) return 0;
   const stored = Number(row.selections.find((selection) => selection.divisionId === divisionId)?.teamCount ?? 0);
   if (!Number.isFinite(stored) || stored <= 0) return 0;
   return Math.max(1, Math.floor(stored));
@@ -173,13 +187,13 @@ function totalTeamCount(row, sports) {
 
 function responseStatus(row, sports) {
   if (!row.submitted) return "미신청";
-  if (row.noParticipation) return "신청 없음";
+  if (row.noParticipation) return "참가 신청 없음";
   return totalTeamCount(row, sports) > 0 ? "신청 완료" : "확인 필요";
 }
 
 function sportResponseStatus(row, sport, sports) {
   if (!row.submitted) return "미신청";
-  if (row.noParticipation) return "전체 신청 없음";
+  if (row.noParticipation) return "전체 참가 신청 없음";
   if (sportTeamCount(row, sport) > 0) return "참가";
   return totalTeamCount(row, sports) > 0 ? "해당 종목 미신청" : "확인 필요";
 }
@@ -195,12 +209,19 @@ function buildReport(dashboard, sportId) {
   };
   const sports = sortedSports(dashboard);
   const rows = sortedRows(dashboard);
+  const eventSchoolLevels = schoolLevels(dashboard.selectedEvent.schoolLevels);
+  const showSchoolLevels = eventSchoolLevels.includes("elementary")
+    || rows.some((row) => row.school.schoolLevel === "elementary");
   const selectedSport = sportId ? sports.find((sport) => sport.id === sportId) : null;
   if (sportId && !selectedSport) throw new Error("선택한 종목을 이 대회에서 찾을 수 없습니다.");
 
-  const knownDivisionIds = new Set(sports.flatMap((sport) => sport.divisions.map((division) => division.id)));
+  const knownDivisions = new Map(sports.flatMap((sport) => sport.divisions.map((division) => [division.id, division])));
   const unknownSelectionCount = rows.reduce((count, row) => count + row.selections.filter(
-    (selection) => Number(selection.teamCount) > 0 && !knownDivisionIds.has(selection.divisionId),
+    (selection) => {
+      const division = knownDivisions.get(selection.divisionId);
+      return Number(selection.teamCount) > 0 && (!division
+        || schoolLevel(division.schoolLevel) !== schoolLevel(row.school.schoolLevel));
+    },
   ).length, 0);
 
   return {
@@ -208,6 +229,8 @@ function buildReport(dashboard, sportId) {
     surveyMessage: cleanText(dashboard.surveyState?.message) || "신청 상태 정보 없음",
     sports,
     rows,
+    eventSchoolLevels,
+    showSchoolLevels,
     selectedSport,
     unknownSelectionCount,
   };
@@ -222,6 +245,15 @@ function textCell(cell, value) {
 function numberCell(cell, value, numberFormat) {
   cell.value = Number(value) || 0;
   if (numberFormat) cell.numFmt = numberFormat;
+}
+
+function schoolOrdinalCell(cell, row, report) {
+  if (report.showSchoolLevels) {
+    const level = SCHOOL_LEVELS.find((option) => option.value === schoolLevel(row.school.schoolLevel));
+    textCell(cell, `${level.shortLabel} ${row.school.displayOrder}`);
+  } else {
+    numberCell(cell, row.school.displayOrder);
+  }
 }
 
 function thinBorder() {
@@ -262,7 +294,7 @@ function styleBodyCell(cell, rowIndex, alignment = "center") {
 
 function applyStatusStyle(cell, status) {
   const success = status === "신청 완료" || status === "참가";
-  const warning = status === "신청 없음" || status === "전체 신청 없음" || status === "해당 종목 미신청";
+  const warning = status === "참가 신청 없음" || status === "전체 참가 신청 없음" || status === "해당 종목 미신청";
   const danger = status === "확인 필요";
   cell.fill = {
     type: "pattern",
@@ -322,7 +354,7 @@ function addDocumentHeader(sheet, report, lastColumn, title, scope, now) {
     1,
     2,
     lastColumn,
-    `${report.tournament.academicYear}학년도 · ${report.tournament.name} · ${scope}`,
+    `${report.tournament.academicYear}학년도 · ${report.tournament.name} · ${scope}${report.showSchoolLevels ? ` · ${schoolLevelsLabel(report.eventSchoolLevels)}` : ""}`,
     styleSubtitleCell,
   );
   mergeAndWrite(
@@ -460,7 +492,7 @@ function addSchoolOverview(workbook, report, usedNames, now) {
   setupSheet(sheet, lastColumn, 8);
   addDocumentHeader(sheet, report, lastColumn, "학교별 참가 신청 전체현황", "모든 종목", now);
 
-  const baseHeaders = ["순번", "학교명", "신청 상태", "참가 종목 수", "총 신청 팀"];
+  const baseHeaders = [report.showSchoolLevels ? "학교급 · 순번" : "순번", "학교명", "신청 상태", "참가 종목 수", "총 신청 팀"];
   baseHeaders.forEach((header, index) => {
     sheet.mergeCells(4, index + 1, 5, index + 1);
     const cell = sheet.getCell(4, index + 1);
@@ -499,7 +531,8 @@ function addSchoolOverview(workbook, report, usedNames, now) {
     const values = [row.school.displayOrder, row.school.name, status, row.submitted ? participatingSportCount : null, row.submitted ? totalTeamCount(row, report.sports) : null];
     values.forEach((value, index) => {
       const cell = sheet.getCell(rowNumber, index + 1);
-      if ((index === 0 || index >= 3) && value !== null) numberCell(cell, value, index === 4 ? TEAM_FORMAT : undefined);
+      if (index === 0) schoolOrdinalCell(cell, row, report);
+      else if (index >= 3 && value !== null) numberCell(cell, value, index === 4 ? TEAM_FORMAT : undefined);
       else if (value !== null) textCell(cell, value);
       styleBodyCell(cell, rowNumber, index === 1 ? "left" : "center");
       if (index === 2) applyStatusStyle(cell, status);
@@ -569,7 +602,7 @@ function addSchoolOverview(workbook, report, usedNames, now) {
   sheet.autoFilter = { from: { row: 5, column: 1 }, to: { row: Math.max(5, rowNumber - 1), column: lastColumn } };
   sheet.views = [{ state: "frozen", ySplit: 5, topLeftCell: "A6", showGridLines: false }];
   sheet.pageSetup.printTitlesRow = "1:5";
-  [7, 23, 15, 13, 13].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+  [report.showSchoolLevels ? 15 : 7, 23, 15, 13, 13].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
   for (let column = 6; column < lastColumn; column += 1) sheet.getColumn(column).width = 13;
   sheet.getColumn(lastColumn).width = 19;
 }
@@ -598,7 +631,7 @@ function addSportParticipants(workbook, report, sport, usedNames, now) {
   addMetricCard(sheet, 5, 7, 8, "한 종별 최대", sport.maxTeamsPerDivision, '0"팀"', sport.active ? COLORS.teal : COLORS.inactiveText);
 
   const tableRow = 9;
-  const headers = ["순번", "학교명", ...sport.divisions.map((division) => `${division.name}${division.active ? "" : " (비활성)"}`), "종목 합계", "마지막 저장"];
+  const headers = [report.showSchoolLevels ? "학교급 · 순번" : "순번", "학교명", ...sport.divisions.map((division) => `${division.name}${division.active ? "" : " (비활성)"}`), "종목 합계", "마지막 저장"];
   headers.forEach((header, index) => {
     const cell = sheet.getCell(tableRow, index + 1);
     textCell(cell, header);
@@ -607,7 +640,7 @@ function addSportParticipants(workbook, report, sport, usedNames, now) {
   sheet.getRow(tableRow).height = 34;
   let rowNumber = tableRow + 1;
   for (const row of participatingRows) {
-    numberCell(sheet.getCell(rowNumber, 1), row.school.displayOrder);
+    schoolOrdinalCell(sheet.getCell(rowNumber, 1), row, report);
     textCell(sheet.getCell(rowNumber, 2), row.school.name);
     styleBodyCell(sheet.getCell(rowNumber, 1), rowNumber);
     styleBodyCell(sheet.getCell(rowNumber, 2), rowNumber, "left");
@@ -662,7 +695,7 @@ function addSportParticipants(workbook, report, sport, usedNames, now) {
   sheet.autoFilter = { from: { row: tableRow, column: 1 }, to: { row: Math.max(tableRow, rowNumber - 1), column: headers.length } };
   sheet.views = [{ state: "frozen", ySplit: tableRow, topLeftCell: `A${tableRow + 1}`, showGridLines: false }];
   sheet.pageSetup.printTitlesRow = `1:${tableRow}`;
-  sheet.getColumn(1).width = 8;
+  sheet.getColumn(1).width = report.showSchoolLevels ? 15 : 8;
   sheet.getColumn(2).width = 24;
   for (let column = 3; column < headers.length; column += 1) sheet.getColumn(column).width = 14;
   sheet.getColumn(headers.length).width = 19;
@@ -672,7 +705,7 @@ function addDivisionParticipants(workbook, report, usedNames, now) {
   const sheet = workbook.addWorksheet(makeUniqueSheetName("종별 참가학교", usedNames));
   setupSheet(sheet, 6);
   addDocumentHeader(sheet, report, 6, "종별 참가학교 전체 명단", "모든 종목", now);
-  const headers = ["종목", "종별", "순번", "학교명", "신청 팀", "마지막 저장"];
+  const headers = ["종목", "종별", report.showSchoolLevels ? "학교급 · 순번" : "순번", "학교명", "신청 팀", "마지막 저장"];
   headers.forEach((header, index) => {
     textCell(sheet.getCell(5, index + 1), header);
     styleHeaderCell(sheet.getCell(5, index + 1));
@@ -691,7 +724,7 @@ function addDivisionParticipants(workbook, report, usedNames, now) {
         ];
         values.forEach((value, index) => {
           const cell = sheet.getCell(rowNumber, index + 1);
-          if (index === 2) numberCell(cell, value);
+          if (index === 2) schoolOrdinalCell(cell, row, report);
           else if (index === 4) numberCell(cell, value, TEAM_FORMAT);
           else textCell(cell, value);
           styleBodyCell(cell, rowNumber, index === 0 || index === 1 || index === 3 ? "left" : "center");
@@ -713,7 +746,7 @@ function addDivisionParticipants(workbook, report, usedNames, now) {
   sheet.autoFilter = { from: { row: 5, column: 1 }, to: { row: Math.max(5, rowNumber - 1), column: 6 } };
   sheet.views = [{ state: "frozen", ySplit: 5, topLeftCell: "A6", showGridLines: false }];
   sheet.pageSetup.printTitlesRow = "1:5";
-  [20, 18, 8, 24, 13, 19].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+  [20, 18, report.showSchoolLevels ? 15 : 8, 24, 13, 19].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
 }
 
 function addSportSummary(workbook, report, sport, usedNames, now) {
@@ -781,7 +814,7 @@ function addAllSchoolsForSport(workbook, report, sport, usedNames, now) {
 
   const tableRow = 9;
   const headers = [
-    "순번",
+    report.showSchoolLevels ? "학교급 · 순번" : "순번",
     "학교명",
     "종목 신청 상태",
     ...sport.divisions.map((division) => `${division.name}${division.active ? "" : " (비활성)"}`),
@@ -799,7 +832,7 @@ function addAllSchoolsForSport(workbook, report, sport, usedNames, now) {
   for (const row of report.rows) {
     const sportStatus = sportResponseStatus(row, sport, report.sports);
     const overallStatus = responseStatus(row, report.sports);
-    numberCell(sheet.getCell(rowNumber, 1), row.school.displayOrder);
+    schoolOrdinalCell(sheet.getCell(rowNumber, 1), row, report);
     textCell(sheet.getCell(rowNumber, 2), row.school.name);
     textCell(sheet.getCell(rowNumber, 3), sportStatus);
     styleBodyCell(sheet.getCell(rowNumber, 1), rowNumber);
@@ -832,7 +865,7 @@ function addAllSchoolsForSport(workbook, report, sport, usedNames, now) {
   sheet.autoFilter = { from: { row: tableRow, column: 1 }, to: { row: Math.max(tableRow, rowNumber - 1), column: headers.length } };
   sheet.views = [{ state: "frozen", ySplit: tableRow, topLeftCell: `A${tableRow + 1}`, showGridLines: false }];
   sheet.pageSetup.printTitlesRow = `1:${tableRow}`;
-  [8, 24, 19].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+  [report.showSchoolLevels ? 15 : 8, 24, 19].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
   for (let column = 4; column < headers.length - 1; column += 1) sheet.getColumn(column).width = 14;
   sheet.getColumn(headers.length - 1).width = 16;
   sheet.getColumn(headers.length).width = 19;

@@ -6,17 +6,21 @@ export const schools = sqliteTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    schoolLevel: text("school_level", { enum: ["elementary", "middle"] }).notNull().default("middle"),
     displayOrder: integer("display_order").notNull(),
     passwordSalt: text("password_salt").notNull(),
     passwordHash: text("password_hash").notNull(),
     passwordIterations: integer("password_iterations").notNull(),
+    institutionFingerprint: text("institution_fingerprint"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
+    eligibleFrom: text("eligible_from"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
     uniqueIndex("schools_name_uq").on(table.name),
-    uniqueIndex("schools_display_order_uq").on(table.displayOrder),
+    uniqueIndex("schools_level_display_order_uq").on(table.schoolLevel, table.displayOrder),
+    uniqueIndex("schools_institution_fingerprint_uq").on(table.institutionFingerprint),
   ],
 );
 
@@ -25,6 +29,7 @@ export const tournaments = sqliteTable(
   {
     id: text("id").primaryKey(),
     academicYear: integer("academic_year").notNull(),
+    schoolLevels: text("school_levels").notNull().default('["middle"]'),
     name: text("name").notNull(),
     surveyStart: text("survey_start").notNull(),
     cardCopy: text("card_copy").notNull().default("{}"),
@@ -82,6 +87,7 @@ export const divisions = sqliteTable(
     id: text("id").primaryKey(),
     sportId: text("sport_id").notNull().references(() => sports.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    schoolLevel: text("school_level", { enum: ["elementary", "middle"] }).notNull().default("middle"),
     displayOrder: integer("display_order").notNull().default(0),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },

@@ -96,6 +96,44 @@ function fixtureDashboard() {
   };
 }
 
+function mixedSchoolDashboard() {
+  const dashboard = fixtureDashboard();
+  dashboard.selectedEvent.schoolLevels = '["elementary","middle"]';
+  dashboard.sports[0].divisions.push(
+    { id: "elementary-male-secret", name: "남초부", schoolLevel: "elementary", displayOrder: 3, active: true },
+    { id: "elementary-female-secret", name: "여초부", schoolLevel: "elementary", displayOrder: 4, active: true },
+  );
+  const makeRow = (level, displayOrder) => ({
+    school: {
+      id: `${level}-${displayOrder}-school-secret`,
+      name: `${level === "elementary" ? "초등" : "중등"}${displayOrder}학교`,
+      schoolLevel: level,
+      displayOrder,
+      passwordHash: "school-password-never-export",
+    },
+    submitted: displayOrder === 1 || (level === "elementary" && displayOrder === 2),
+    noParticipation: level === "elementary" && displayOrder === 2,
+    updatedAt: displayOrder === 1 ? "2026-08-31 01:00:00" : null,
+    revision: 1,
+    selections: displayOrder === 1
+      ? level === "elementary"
+        ? [{ divisionId: "elementary-male-secret", teamCount: 2 }, { divisionId: "elementary-female-secret", teamCount: 1 }]
+        : [{ divisionId: "division-secret-never-export", teamCount: 2 }, { divisionId: "other-division-secret", teamCount: 1 }, { divisionId: "elementary-male-secret", teamCount: 99 }]
+      : [],
+  });
+  // The two school levels have independent 1-based ordinals. Input order is
+  // intentionally middle first and descending within each level.
+  dashboard.rows = [
+    ...Array.from({ length: 42 }, (_, index) => makeRow("middle", 42 - index)),
+    ...Array.from({ length: 73 }, (_, index) => makeRow("elementary", 73 - index)),
+  ];
+  // Existing middle-school data is allowed to omit schoolLevel.
+  delete dashboard.rows.find((row) => row.school.name === "중등1학교").school.schoolLevel;
+  dashboard.schools = [{ id: "unrelated-school-id", name: "대상외학교-비밀표식", displayOrder: 1 }];
+  dashboard.events = [{ id: "unrelated-event-id", name: "다른대회-비밀표식" }];
+  return dashboard;
+}
+
 async function loadWorkbook(buffer) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
@@ -152,10 +190,13 @@ test("creates a polished all-sports workbook with screen-equivalent totals", asy
 
   const schools = workbook.getWorksheet("학교별 전체현황");
   assert.ok(schools);
+  assert.equal(schools.getCell("A4").value, "순번", "기존 중학교 전용 머리글 유지");
+  assert.equal(schools.getCell("A6").value, 1, "기존 중학교 전용 순번은 숫자로 유지");
+  assert.equal(schools.getColumn(1).width, 7, "기존 중학교 전용 열 너비 유지");
   assert.equal(schools.getCell("C6").value, "신청 완료");
   assert.equal(schools.getCell("E6").value, 3);
-  assert.equal(schools.getCell("C7").value, "신청 없음");
-  assert.equal(schools.getCell("E7").value, 0, "신청 없음 행은 방어적으로 0팀");
+  assert.equal(schools.getCell("C7").value, "참가 신청 없음");
+  assert.equal(schools.getCell("E7").value, 0, "참가 신청 없음 행은 방어적으로 0팀");
   assert.equal(schools.getCell("C8").value, "미신청");
   assert.equal(schools.getCell("E8").value, null);
   assert.ok(schools.getCell("K6").value instanceof Date);
@@ -202,6 +243,95 @@ test("creates a selected-sport workbook without leaking other sports or internal
   assert.equal(Object.keys(zip.files).some((name) => name.startsWith("xl/externalLinks/") || name.endsWith("vbaProject.bin")), false);
   assert.doesNotMatch(text, /피구-다른종목-비밀표식|여중부-다른종목/u);
   assert.doesNotMatch(text, /event-secret-never-export|sport-secret-never-export|division-secret-never-export|school-secret-never-export|admin-secret-never-export|987654321/u);
+});
+
+test("keeps 115 mixed-level schools distinct and totals only matching divisions", async () => {
+  const dashboard = mixedSchoolDashboard();
+  const originalOrder = dashboard.rows.map((row) => row.school.id);
+  const file = await createSurveyWorkbookFile(dashboard, { now: exportedAt });
+  const workbook = await loadWorkbook(file.buffer);
+  const summary = workbook.getWorksheet("종합 요약");
+  assert.equal(summary.getCell("A6").value, 115, "초등 73개교와 중등 42개교를 각각 집계");
+  assert.equal(summary.getCell("C6").value, 3);
+  assert.equal(summary.getCell("E6").value, 112);
+  assert.equal(summary.getCell("G6").value, 3 / 115, "신청률 분모는 대회 대상 학교");
+  assert.equal(summary.getCell("A9").value, 2);
+  assert.equal(summary.getCell("C9").value, 1);
+  assert.equal(summary.getCell("E9").value, 6, "다른 학교급 종별에 잘못 연결된 99팀 제외");
+  assert.equal(summary.getCell("G9").value, 1, "학교급 불일치는 확인 필요 건수로 표시");
+  assert.equal(summary.getCell("D13").value, 2);
+  assert.equal(summary.getCell("E13").value, 5);
+  assert.equal(summary.getCell("B14").value, "↳ 남초부");
+  assert.equal(summary.getCell("D14").value, 1);
+  assert.equal(summary.getCell("E14").value, 2);
+  assert.match(summary.getCell("A2").value, /초등학교·중학교/u);
+
+  const schools = workbook.getWorksheet("학교별 전체현황");
+  assert.equal(schools.getCell("A4").value, "학교급 · 순번");
+  assert.equal(schools.getCell("A6").value, "초등 1");
+  assert.equal(schools.getCell("B6").value, "초등1학교");
+  assert.equal(schools.getCell("A78").value, "초등 73");
+  assert.equal(schools.getCell("A79").value, "중등 1");
+  assert.equal(schools.getCell("B79").value, "중등1학교");
+  assert.equal(schools.getCell("A120").value, "중등 42");
+  assert.equal(schools.getCell("E6").value, 3);
+  assert.equal(schools.getCell("E79").value, 3);
+  assert.equal(schools.getCell("E121").value, 6);
+  assert.equal(schools.getCell("F79").value, 0, "중학교 신청이 남초부 집계로 넘어가지 않음");
+  assert.equal(schools.getCell("H6").value, 0, "초등학교 남중부 집계는 0");
+
+  const sport = workbook.getWorksheet("배구 참가학교");
+  assert.equal(sport.getCell("A9").value, "학교급 · 순번");
+  assert.equal(sport.getCell("A10").value, "초등 1");
+  assert.equal(sport.getCell("A11").value, "중등 1");
+  assert.equal(sport.getCell("C10").value, 2);
+  assert.equal(sport.getCell("C11").value, 0);
+  assert.equal(sport.getCell("G12").value, 5);
+
+  const divisions = workbook.getWorksheet("종별 참가학교");
+  assert.equal(divisions.getCell("C5").value, "학교급 · 순번");
+  assert.equal(divisions.getCell("B6").value, "남초부");
+  assert.equal(divisions.getCell("C6").value, "초등 1");
+  assert.equal(divisions.getCell("C8").value, "중등 1");
+  for (const sheet of workbook.worksheets) {
+    assert.equal(sheet.views[0]?.xSplit ?? 0, 0, `${sheet.name}: 세로 틀 고정 없음`);
+  }
+  assert.deepEqual(dashboard.rows.map((row) => row.school.id), originalOrder, "내보내기는 원본 순서를 변경하지 않음");
+});
+
+test("mixed-level selected-sport export preserves scope and eligible-school denominators", async () => {
+  const dashboard = mixedSchoolDashboard();
+  const file = await createSurveyWorkbookFile(dashboard, { sportId: "sport-secret-never-export", now: exportedAt });
+  const workbook = await loadWorkbook(file.buffer);
+  assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ["종목 요약", "배구 참가학교", "전체학교 확인"]);
+  const summary = workbook.getWorksheet("종목 요약");
+  assert.equal(summary.getCell("A6").value, 115);
+  assert.equal(summary.getCell("E6").value, 2);
+  assert.equal(summary.getCell("G6").value, 5);
+  const schools = workbook.getWorksheet("전체학교 확인");
+  assert.equal(schools.getCell("A9").value, "학교급 · 순번");
+  assert.equal(schools.getCell("A10").value, "초등 1");
+  assert.equal(schools.getCell("A83").value, "중등 1");
+  assert.equal(schools.getCell("H10").value, 3);
+  assert.equal(schools.getCell("H83").value, 2);
+  assert.equal(schools.views[0].ySplit, 9);
+  assert.equal(schools.views[0].xSplit ?? 0, 0);
+  const { text } = await readZipText(file.buffer);
+  assert.doesNotMatch(text, /피구-다른종목-비밀표식|여중부-다른종목|대상외학교-비밀표식|다른대회-비밀표식/u);
+  assert.doesNotMatch(text, /elementary-male-secret|elementary-female-secret|school-password-never-export|event-secret-never-export|admin-secret-never-export/u);
+
+  dashboard.selectedEvent.schoolLevels = '["elementary"]';
+  dashboard.rows = dashboard.rows.filter((row) => row.school.schoolLevel === "elementary");
+  const elementaryFile = await createSurveyWorkbookFile(dashboard, { sportId: "sport-secret-never-export", now: exportedAt });
+  const elementaryWorkbook = await loadWorkbook(elementaryFile.buffer);
+  const elementarySummary = elementaryWorkbook.getWorksheet("종목 요약");
+  assert.equal(elementarySummary.getCell("A6").value, 73, "백엔드에서 선택된 대상 학교만 분모에 사용");
+  assert.equal(elementarySummary.getCell("C6").value, 2);
+  assert.equal(elementarySummary.getCell("G6").value, 3);
+  assert.match(elementarySummary.getCell("A2").value, /초등학교/u);
+  assert.doesNotMatch(elementarySummary.getCell("A2").value, /중학교/u);
+  const elementaryText = (await readZipText(elementaryFile.buffer)).text;
+  assert.doesNotMatch(elementaryText, /중등1학교|대상외학교-비밀표식|다른대회-비밀표식/u);
 });
 
 test("sanitizes file and sheet names without splitting Unicode characters", () => {

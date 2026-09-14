@@ -253,3 +253,43 @@ button, input, select, textarea, b, strong { font-weight: 800; }
 }
 @media (max-width: 350px) { .redesigned-login .school-picker { grid-template-columns: 1fr; }.event-card-details { grid-template-columns: 1fr; }.brand b { display: none; }.year-heading .eyebrow { white-space: normal; }.export-controls { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* Keep long Korean event-name words together in the live card and admin preview. */
+.school-level-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
+.school-level-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #607d85; font-size: 13px; white-space: nowrap; }
+.school-level-tabs button[aria-pressed="true"] { background: #eaf5ef; border-color: #78b8a7; color: #176e5f; }
+.school-label-stack { display: grid; justify-items: center; min-width: 0; gap: 3px; }
+.school-label-stack .school-name { display: block; width: 100%; }
+.school-level-tag { display: inline-block; color: #748c91; font-size: 11px; line-height: 1.3; white-space: nowrap; }
+.settings-card .school-level-fieldset { min-width: 0; margin: 0; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: #f7faf9; }
+.school-level-fieldset legend { padding: 0 5px; color: var(--ink); font-size: 14px; }
+.school-level-fieldset legend small, .sport-divisions legend small { color: var(--muted); margin-left: 5px; }
+.school-level-options { display: flex; flex-wrap: wrap; gap: 10px; }
+.settings-card form .school-level-options label { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 45px; padding: 10px 15px; border: 1px solid #cbded7; border-radius: 9px; background: white; cursor: pointer; }
+.settings-card form .school-level-options label:has(input:checked) { color: #176e5f; background: #eaf5ef; border-color: #78b8a7; }
+.settings-card form .school-level-options input { width: 18px; min-height: 18px; height: 18px; margin: 0; padding: 0; accent-color: #176e5f; }
+.school-level-options label span { white-space: nowrap; }
+.school-level-fieldset p { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.survey-target-summary { display: grid; gap: 9px; }
+.survey-target-summary > span { font-size: 14px; }
+.survey-target-summary > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.survey-target-summary small { color: var(--muted); line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.school-level-chip { display: inline-flex; justify-content: center; align-items: center; width: fit-content; max-width: 100%; min-height: 30px; padding: 5px 9px; border-radius: 7px; background: #eaf5ef; color: #176e5f; font-size: 12px; white-space: nowrap; }
+.school-level-division-row { grid-template-columns: 102px minmax(0, 1fr) 38px; align-items: center; }
+.school-level-division-row > label { min-width: 0; }
+.settings-card .school-level-division-row input, .settings-card .school-level-division-row select { width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 8px 10px; }
+.school-level-division-row .sport-division-remove { width: 38px; min-height: 44px; height: 44px; align-self: center; }
+.result-school-level { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+@media (max-width: 520px) {
+  .school-level-tabs { gap: 6px; }
+  .school-level-tabs button { padding: 9px 10px; font-size: 12px; }
+  .school-level-division-row { grid-template-columns: 87px minmax(0, 1fr) 32px; gap: 5px; }
+  .settings-card .school-level-division-row select { font-size: 13px; padding: 8px 6px; }
+  .school-level-division-row .sport-division-remove { width: 32px; }
+}
+
+.event-card .event-card-titles > h2[data-long-title="true"] {
+  font-size: clamp(22px, 2vw, 28px);
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}

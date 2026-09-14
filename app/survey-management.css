@@ -1,0 +1,77 @@
+/* Survey selection and school registry share the established mint/teal theme. */
+.admin-school-management { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 22px; margin-top: 26px; align-items: start; }
+.admin-school-management > *, .admin-school-management form, .school-registry-toolbar, .school-registry-name { min-width: 0; }
+.admin-school-management .school-registry-description { margin-bottom: 22px; font-size: 14px; line-height: 1.8; color: var(--muted); word-break: keep-all; overflow-wrap: anywhere; }
+.admin-school-management label small, .school-registry-hint { color: var(--muted); font-size: 13px; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.admin-school-management form select, .admin-school-management form input { width: 100%; min-width: 0; font: inherit; font-size: 15px; height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfdfd; color: var(--ink); }
+.admin-school-management form label > .registry-code-field { position: relative; display: block; }
+.admin-school-management .registry-code-field input { padding-right: 67px; }
+.registry-code-field button { position: absolute; inset: 3px 3px 3px auto; display: inline-flex; align-items: center; justify-content: center; min-width: 53px; padding: 6px 11px; border: 0; border-radius: 6px; background: #edf5f2; color: var(--teal); font: inherit; font-size: 13px; white-space: nowrap; }
+.school-registry-hint { margin: 0; }
+.school-registry-notice { margin: 0; padding: 13px 15px; border: 1px solid #b9d8c9; border-radius: 9px; background: #eef8f1; color: #27654e; font-size: 14px; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.school-registration-card .solid-button { display: inline-flex; justify-content: center; align-items: center; width: 100%; min-height: 46px; text-align: center; }
+.school-registry-login { width: fit-content; padding: 5px 0; color: var(--teal); text-decoration: underline; text-underline-offset: 3px; font-size: 14px; }
+.school-registry-card header h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.school-registry-card header h2 small { padding: 5px 8px; border-radius: 6px; background: #edf6f2; color: #3f7b65; font-size: 12px; white-space: nowrap; }
+.school-registry-toolbar { display: grid; gap: 13px; }
+.school-registry-tabs, .results-school-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.school-registry-tabs button, .results-school-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; max-width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #607d85; font: inherit; font-size: 13px; line-height: 1.3; white-space: nowrap; text-align: center; }
+.school-registry-tabs button[aria-pressed="true"], .results-school-tabs button[aria-selected="true"], .results-school-tabs button[aria-pressed="true"] { background: #eaf5ef; border-color: #78b8a7; color: #176e5f; }
+.school-registry-search input { width: 100%; min-width: 0; height: 44px; font: inherit; font-size: 15px; border-radius: 8px; }
+.school-registry-list-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 14px 0 9px; color: var(--muted); font-size: 12px; }
+.school-registry-list-heading button { min-height: 38px; padding: 8px 0 8px 8px; border: 0; background: transparent; color: var(--teal); font: inherit; font-size: 12px; white-space: nowrap; }
+.school-registry-scroll { min-width: 0; max-height: 580px; overflow-x: hidden; overflow-y: auto; overscroll-behavior-x: contain; overscroll-behavior-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #a8cec0 transparent; }
+.school-registry-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.school-registry-list li { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 71px; padding: 13px 8px; border-bottom: 1px solid #e9eff0; }
+.school-registry-list li:first-child { border-top: 1px solid #e9eff0; }
+.school-registry-order { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; color: #6d878c; background: #f1f6f5; font-size: 12px; }
+.school-registry-name { display: grid; gap: 4px; }
+.school-registry-name b { color: var(--ink); font-size: 14px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere; }
+.school-registry-name small { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.school-registry-actions { display: grid; justify-items: end; align-items: center; gap: 6px; min-width: 0; }
+.school-registry-edit-button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; max-width: 100%; padding: 9px 10px; border: 1px solid #c8dcd5; border-radius: 7px; background: #fff; color: #28735f; font: inherit; font-size: 12px; line-height: 1.3; text-align: center; white-space: nowrap; }
+.school-registry-edit-button[aria-expanded="true"] { background: #eaf5ef; border-color: #78b8a7; color: #176e5f; }
+.school-registry-badge { display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; border-radius: 6px; background: #eef7f1; color: #3d7964; font-size: 11px; white-space: nowrap; }
+.school-registry-badge.inactive { color: #8a8181; background: #f3f1f1; }
+.school-registry-empty { margin: 0; padding: 42px 12px; color: var(--muted); text-align: center; font-size: 14px; line-height: 1.7; }
+.school-registry-security { margin-top: 16px; font-size: 12px; }
+.school-code-change-notice { margin-bottom: 15px; }
+.school-institution-editor { min-width: 0; margin: 0 0 20px; padding: 20px; border: 1px solid #abcfc0; border-radius: 12px; background: #f5faf7; scroll-margin-block: 25px; }
+.school-institution-editor > header p { margin: 0 0 6px; color: #618379; font-size: 12px; letter-spacing: 0; }
+.school-institution-editor > header h3 { margin: 0 0 12px; color: var(--ink); font-size: 19px; }
+.school-institution-target { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid #d7e7df; border-radius: 8px; background: white; }
+.school-institution-target b { min-width: 0; font-size: 16px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+.school-institution-target span { display: inline-flex; align-items: center; justify-content: center; padding: 5px 7px; border-radius: 5px; background: #eaf5ef; color: #3d7964; font-size: 12px; white-space: nowrap; }
+.school-institution-editor .school-institution-warning { margin: 14px 0 18px; color: #765d2d; font-size: 13px; line-height: 1.8; word-break: keep-all; overflow-wrap: anywhere; }
+.school-institution-editor form { min-width: 0; gap: 13px; }
+.school-institution-visibility { display: inline-flex; align-items: center; justify-content: center; width: fit-content; max-width: 100%; min-height: 40px; padding: 8px 11px; border: 1px solid #ccdfd5; border-radius: 7px; background: #fff; color: #387d66; font: inherit; font-size: 12px; line-height: 1.4; text-align: center; }
+.school-institution-editor form footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.school-institution-editor form footer button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; max-width: 100%; padding: 11px 14px; text-align: center; font-size: 13px; }
+.school-registry-load-error { display: grid; justify-items: start; gap: 10px; padding: 13px; margin: 8px 0; border: 1px solid #edcdcd; border-radius: 9px; background: #fff8f8; color: #a74242; }
+.school-registry-load-error p { margin: 0; font-size: 13px; line-height: 1.7; }
+.survey-picker { display: grid; gap: 10px; min-width: 0; margin: 0 0 22px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.survey-picker label { display: grid; gap: 7px; min-width: 0; font-size: 13px; color: var(--muted); }
+.survey-picker select { width: 100%; min-width: 0; max-width: 100%; height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfdfd; color: var(--ink); font: inherit; font-size: 15px; text-overflow: ellipsis; }
+.survey-picker p, .survey-picker small { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; word-break: keep-all; overflow-wrap: anywhere; }
+.survey-publication-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; }
+.survey-publication-actions button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; max-width: 100%; min-height: 44px; text-align: center; }
+@media (max-width: 1100px) { .admin-school-management { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) {
+  .admin-school-management { gap: 18px; margin-top: 20px; }
+  .admin-school-management .settings-card { padding: 21px 17px; }
+  .school-registry-tabs, .results-school-tabs { gap: 6px; }
+  .school-registry-tabs button, .results-school-tabs button { padding: 10px; font-size: 12px; }
+  .school-registry-scroll { max-height: 480px; }
+  .school-registry-list li { grid-template-columns: 27px minmax(0, 1fr) auto; gap: 8px; padding: 12px 2px; }
+  .school-registry-order { width: 27px; height: 27px; }
+  .school-registry-name b { font-size: 13px; }
+  .school-registry-badge { padding: 5px; font-size: 10px; }
+  .school-registry-edit-button { min-height: 40px; padding: 8px; font-size: 11px; }
+  .school-institution-editor { padding: 16px 13px; }
+  .school-institution-target { padding: 10px; }
+  .school-institution-target b { font-size: 14px; }
+  .school-institution-editor form footer { display: grid; grid-template-columns: minmax(0, .65fr) minmax(0, 1.35fr); }
+  .school-institution-editor form footer button { width: 100%; min-width: 0; padding: 11px 6px; font-size: 12px; }
+  .survey-picker { padding: 15px; }
+  .survey-publication-actions { align-items: stretch; flex-direction: column; }
+}

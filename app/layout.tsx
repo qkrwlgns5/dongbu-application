@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./redesign.css";
+import "./survey-management.css";
+import "./survey-selection.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(

@@ -1,0 +1,440 @@
+[
+  {
+    "id": "school-elementary-001",
+    "name": "인천만수초등학교",
+    "displayOrder": 1,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-002",
+    "name": "인천논현초등학교",
+    "displayOrder": 2,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-003",
+    "name": "인천송도초등학교",
+    "displayOrder": 3,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-004",
+    "name": "인천구월초등학교",
+    "displayOrder": 4,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-005",
+    "name": "인천중앙초등학교",
+    "displayOrder": 5,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-006",
+    "name": "인천간석초등학교",
+    "displayOrder": 6,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-007",
+    "name": "인천도림초등학교",
+    "displayOrder": 7,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-008",
+    "name": "인천동춘초등학교",
+    "displayOrder": 8,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-009",
+    "name": "인천주원초등학교",
+    "displayOrder": 9,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-010",
+    "name": "인천동부초등학교",
+    "displayOrder": 10,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-011",
+    "name": "인천석천초등학교",
+    "displayOrder": 11,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-012",
+    "name": "인천구월서초등학교",
+    "displayOrder": 12,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-013",
+    "name": "인천만수북초등학교",
+    "displayOrder": 13,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-014",
+    "name": "인천약산초등학교",
+    "displayOrder": 14,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-015",
+    "name": "인천조동초등학교",
+    "displayOrder": 15,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-016",
+    "name": "상인천초등학교",
+    "displayOrder": 16,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-017",
+    "name": "인천인수초등학교",
+    "displayOrder": 17,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-018",
+    "name": "인천만월초등학교",
+    "displayOrder": 18,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-019",
+    "name": "인천석정초등학교",
+    "displayOrder": 19,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-020",
+    "name": "인천장수초등학교",
+    "displayOrder": 20,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-021",
+    "name": "인천연수초등학교",
+    "displayOrder": 21,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-022",
+    "name": "인천남동초등학교",
+    "displayOrder": 22,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-023",
+    "name": "인천선학초등학교",
+    "displayOrder": 23,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-024",
+    "name": "인천문남초등학교",
+    "displayOrder": 24,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-025",
+    "name": "인천연성초등학교",
+    "displayOrder": 25,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-026",
+    "name": "인천동막초등학교",
+    "displayOrder": 26,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-027",
+    "name": "인천담방초등학교",
+    "displayOrder": 27,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-028",
+    "name": "인천청학초등학교",
+    "displayOrder": 28,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-029",
+    "name": "인천연화초등학교",
+    "displayOrder": 29,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-030",
+    "name": "인천청량초등학교",
+    "displayOrder": 30,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-031",
+    "name": "인천옥련초등학교",
+    "displayOrder": 31,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-032",
+    "name": "인천서면초등학교",
+    "displayOrder": 32,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-033",
+    "name": "인천능허대초등학교",
+    "displayOrder": 33,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-034",
+    "name": "인천함박초등학교",
+    "displayOrder": 34,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-035",
+    "name": "인천성리초등학교",
+    "displayOrder": 35,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-036",
+    "name": "인천논곡초등학교",
+    "displayOrder": 36,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-037",
+    "name": "인천인동초등학교",
+    "displayOrder": 37,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-038",
+    "name": "인천축현초등학교",
+    "displayOrder": 38,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-039",
+    "name": "인천소래초등학교",
+    "displayOrder": 39,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-040",
+    "name": "인천남촌초등학교",
+    "displayOrder": 40,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-041",
+    "name": "인천신월초등학교",
+    "displayOrder": 41,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-042",
+    "name": "인천새말초등학교",
+    "displayOrder": 42,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-043",
+    "name": "인천서창초등학교",
+    "displayOrder": 43,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-044",
+    "name": "인천먼우금초등학교",
+    "displayOrder": 44,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-045",
+    "name": "인천신송초등학교",
+    "displayOrder": 45,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-046",
+    "name": "인천장도초등학교",
+    "displayOrder": 46,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-047",
+    "name": "인천동방초등학교",
+    "displayOrder": 47,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-048",
+    "name": "인천은봉초등학교",
+    "displayOrder": 48,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-049",
+    "name": "인천정각초등학교",
+    "displayOrder": 49,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-050",
+    "name": "인천해송초등학교",
+    "displayOrder": 50,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-051",
+    "name": "인천상아초등학교",
+    "displayOrder": 51,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-052",
+    "name": "인천고잔초등학교",
+    "displayOrder": 52,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-053",
+    "name": "인천신정초등학교",
+    "displayOrder": 53,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-054",
+    "name": "인천원동초등학교",
+    "displayOrder": 54,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-055",
+    "name": "인천사리울초등학교",
+    "displayOrder": 55,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-056",
+    "name": "인천송천초등학교",
+    "displayOrder": 56,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-057",
+    "name": "인천명선초등학교",
+    "displayOrder": 57,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-058",
+    "name": "인천한빛초등학교",
+    "displayOrder": 58,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-059",
+    "name": "인천송원초등학교",
+    "displayOrder": 59,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-060",
+    "name": "인천송명초등학교",
+    "displayOrder": 60,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-061",
+    "name": "인천장서초등학교",
+    "displayOrder": 61,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-062",
+    "name": "인천송일초등학교",
+    "displayOrder": 62,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-063",
+    "name": "인천연송초등학교",
+    "displayOrder": 63,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-064",
+    "name": "인천첨단초등학교",
+    "displayOrder": 64,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-065",
+    "name": "인천예송초등학교",
+    "displayOrder": 65,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-066",
+    "name": "인천미송초등학교",
+    "displayOrder": 66,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-067",
+    "name": "인천장아초등학교",
+    "displayOrder": 67,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-068",
+    "name": "인천은송초등학교",
+    "displayOrder": 68,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-069",
+    "name": "인천새봄초등학교",
+    "displayOrder": 69,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-070",
+    "name": "인천현송초등학교",
+    "displayOrder": 70,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-071",
+    "name": "인천송담초등학교",
+    "displayOrder": 71,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-072",
+    "name": "인천송빛초등학교",
+    "displayOrder": 72,
+    "schoolLevel": "elementary"
+  },
+  {
+    "id": "school-elementary-073",
+    "name": "인천박문초등학교",
+    "displayOrder": 73,
+    "schoolLevel": "elementary"
+  }
+]

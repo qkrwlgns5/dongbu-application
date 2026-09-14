@@ -5,6 +5,10 @@
 import { FormEvent, Fragment, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EVENT_CARD_FIELDS, eventCardCopy, formatEventCardDate } from "./event-card-copy.js";
 import { PAGE_HEADER_FIELDS, pageHeaderCopy } from "./page-header-copy.js";
+import { SCHOOL_LEVELS, schoolLevels, schoolLevelLabel, schoolLevelsLabel } from "./school-levels.js";
+import AdminSchoolManagement from "./admin-school-management";
+
+type SchoolLevel = "elementary" | "middle";
 
 type Tournament = {
   id: string;
@@ -14,11 +18,12 @@ type Tournament = {
   cardCopy: string;
   headerCopy: string;
   logoKey?: string;
+  schoolLevels?: string;
   surveyEnd: string;
   status: "draft" | "active" | "archived";
 };
 
-type Division = { id: string; name: string; displayOrder: number; active: boolean };
+type Division = { id: string; name: string; displayOrder: number; active: boolean; schoolLevel?: SchoolLevel };
 type Sport = {
   id: string;
   name: string;
@@ -30,7 +35,7 @@ type Sport = {
   divisions: Division[];
 };
 
-type School = { id: string; name: string; displayOrder: number };
+type School = { id: string; name: string; displayOrder: number; schoolLevel?: SchoolLevel };
 type Survey = {
   submitted: boolean;
   noParticipation: boolean;
@@ -45,10 +50,12 @@ type Bootstrap = {
   surveyState: { open: boolean; code: string; message: string };
   schools: School[];
   sports: Sport[];
+  tournaments?: Array<Tournament & { surveyState: { open: boolean; code: string; message: string } }>;
+  defaultEventId?: string | null;
 };
 
 type SchoolSession = {
-  school: Pick<School, "id" | "name">;
+  school: Pick<School, "id" | "name" | "schoolLevel">;
   tournament: Tournament;
   sports: Sport[];
   survey: Survey;
@@ -59,8 +66,8 @@ type SportParticipants = {
   name: string;
   schoolCount: number;
   teamCount: number;
-  divisions: Array<{ id: string; name: string; schoolCount: number; teamCount: number }>;
-  schools: Array<{ schoolId: string; schoolName: string; isOwnSchool: boolean; teamCount: number; selections: Array<{ divisionId: string; divisionName: string; teamCount: number }> }>;
+  divisions: Array<{ id: string; name: string; schoolCount: number; teamCount: number; schoolLevel?: SchoolLevel }>;
+  schools: Array<{ schoolId: string; schoolName: string; schoolLevel?: SchoolLevel; isOwnSchool: boolean; teamCount: number; selections: Array<{ divisionId: string; divisionName: string; teamCount: number }> }>;
 };
 type ParticipantOverview = { tournamentId: string; queriedAt: string; sports: SportParticipants[] };
 
@@ -75,6 +82,7 @@ type ResultRow = {
 
 type Dashboard = {
   adminUsername: string;
+  defaultEventId?: string | null;
   events: Tournament[];
   selectedEvent: Tournament | null;
   surveyState?: { open: boolean; code: string; message: string };
@@ -84,12 +92,12 @@ type Dashboard = {
 
 type SportUpdatePayload = {
   name: string;
-  divisions: Array<{ id?: string; name: string }>;
+  divisions: Array<{ id?: string; name: string; schoolLevel: SchoolLevel }>;
   maxTeamsPerSchool: number;
   maxTeamsPerDivision: number;
 };
 
-type DivisionDraft = { key: string; id?: string; name: string };
+type DivisionDraft = { key: string; id?: string; name: string; schoolLevel: SchoolLevel };
 
 class ApiRequestError extends Error {
   status: number;
@@ -225,9 +233,9 @@ function ApplicationSteps({ current }: { current: number }) {
 
 function EventCard({ tournament, sports, schoolCount, copy }: { tournament: Tournament | null; sports: Sport[]; schoolCount: number; copy?: Record<string, string> }) {
   const content = eventCardCopy(tournament, copy);
-  return <aside className="event-card" aria-label="대회 참가 안내">
+  return <aside className="event-card" aria-label="대회 참가 신청 안내">
     <div className="event-card-kicker">{content.eyebrow && <span>{content.eyebrow}</span>}{content.badge && <span>{content.badge}</span>}</div>
-    <div className="event-card-titles">{content.title && <h2><CardText text={content.title} /></h2>}{content.subtitle && <h3><CardText text={content.subtitle} /></h3>}{content.description && <p><CardText text={content.description} /></p>}</div>
+    <div className="event-card-titles">{content.title && <h2 data-long-title={content.title.split(/\s+/u).some((word: string) => Array.from(word).length >= 8)}><CardText text={content.title} /></h2>}{content.subtitle && <h3><CardText text={content.subtitle} /></h3>}{content.description && <p><CardText text={content.description} /></p>}</div>
     <div className="event-card-details">{tournament && <div><UiIcon name="calendar" /><span>신청 기간</span><b><span>{formatEventCardDate(tournament.surveyStart)}</span><span>~ {formatEventCardDate(tournament.surveyEnd)}</span></b></div>}{content.target && <div><UiIcon name="school" /><span>참가 대상</span><b><SentenceFlow text={content.target} /></b></div>}</div>
     <div className="event-card-sports">{sports.filter((sport) => sport.active).map((sport) => <span key={sport.id}>{sport.name}</span>)}</div>
     <div className="event-card-bottom">{content.footer && <span><UiIcon name="check" /><SentenceFlow text={content.footer} /></span>}<b>{schoolCount}<small>개교</small></b></div>
@@ -235,7 +243,7 @@ function EventCard({ tournament, sports, schoolCount, copy }: { tournament: Tour
 }
 
 function ErrorState({ message, retry }: { message: string; retry: () => void }) {
-  return <main className="center-state error-state"><span>!</span><b>페이지를 열지 못했습니다.</b><small><SentenceFlow text={message} /></small><button onClick={retry}>다시 시도</button></main>;
+  return <main className="center-state error-state"><span>!</span><b>페이지를 열지 못했습니다.</b><small><SentenceFlow text={message} /></small><button onClick={retry}>다시 시도</button><a href="/">공개 대회 목록으로 돌아가기</a></main>;
 }
 
 export function SurveyApp({ initialView = "school" }: { initialView?: "school" | "admin" }) {
@@ -245,6 +253,9 @@ export function SurveyApp({ initialView = "school" }: { initialView?: "school" |
   const [phase, setPhase] = useState<"loading" | "login" | "survey" | "admin-login" | "admin">("loading");
   const [fatalError, setFatalError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [switchingSurvey, setSwitchingSurvey] = useState(false);
+  const [surveyChoiceError, setSurveyChoiceError] = useState("");
+  const choiceSequence = useRef(0);
 
   useEffect(() => {
     let mounted = true;
@@ -252,7 +263,8 @@ export function SurveyApp({ initialView = "school" }: { initialView?: "school" |
       setFatalError("");
       setPhase("loading");
       try {
-        const boot = await api<Bootstrap>("bootstrap");
+        const requestedId = initialView === "school" ? new URLSearchParams(window.location.search).get("tournamentId") : null;
+        const boot = await api<Bootstrap>(`bootstrap${requestedId ? `?tournamentId=${encodeURIComponent(requestedId)}` : ""}`);
         if (!mounted) return;
         setBootstrap(boot);
         if (initialView === "admin") {
@@ -269,7 +281,7 @@ export function SurveyApp({ initialView = "school" }: { initialView?: "school" |
           return;
         }
         try {
-          const session = await api<SchoolSession>("school/session");
+          const session = await api<SchoolSession>(`school/session${requestedId ? `?tournamentId=${encodeURIComponent(requestedId)}` : ""}`);
           if (!mounted) return;
           setSchoolSession(session);
           setPhase("survey");
@@ -295,37 +307,67 @@ export function SurveyApp({ initialView = "school" }: { initialView?: "school" |
     setBootstrap(boot);
   }
 
+  async function chooseTournament(tournamentId: string) {
+    const sequence = ++choiceSequence.current;
+    setSwitchingSurvey(true);
+    setSurveyChoiceError("");
+    try {
+      const next = await api<Bootstrap>(`bootstrap?tournamentId=${encodeURIComponent(tournamentId)}`);
+      if (sequence !== choiceSequence.current) return;
+      setBootstrap(next);
+      setSchoolSession(null);
+      window.history.replaceState(null, "", `/?tournamentId=${encodeURIComponent(tournamentId)}`);
+    } catch (error) {
+      if (sequence === choiceSequence.current) setSurveyChoiceError(error instanceof Error ? error.message : "대회를 불러오지 못했습니다.");
+    } finally { if (sequence === choiceSequence.current) setSwitchingSurvey(false); }
+  }
+
   if (fatalError) return <ErrorState message={fatalError} retry={() => setReloadKey((value) => value + 1)} />;
   if (phase === "loading" || !bootstrap) return <PageLoader />;
-  if (phase === "login") return <SchoolLogin bootstrap={bootstrap} onLogin={(session) => { setSchoolSession(session); setPhase("survey"); }} />;
-  if (phase === "survey" && schoolSession) return <SurveyForm session={schoolSession} />;
+  if (phase === "login") return <SchoolLogin key={bootstrap.tournament?.id ?? "none"} bootstrap={bootstrap} switchingSurvey={switchingSurvey} choiceError={surveyChoiceError} onChooseTournament={chooseTournament} onLogin={(session) => { window.history.replaceState(null, "", `/?tournamentId=${encodeURIComponent(session.tournament.id)}`); setSchoolSession(session); setPhase("survey"); }} />;
+  if (phase === "survey" && schoolSession) return <SurveyForm key={`${schoolSession.tournament.id}-${schoolSession.school.id}`} session={schoolSession} />;
   if (phase === "admin-login") return <AdminLogin onLogin={async () => { await refreshDashboard(); setPhase("admin"); }} />;
   if (phase === "admin" && dashboard) return <AdminPanel dashboard={dashboard} refresh={refreshDashboard} />;
   return <PageLoader />;
 }
 
-function SchoolLogin({ bootstrap, onLogin }: { bootstrap: Bootstrap; onLogin: (session: SchoolSession) => void }) {
+function SurveyPicker({ bootstrap, busy, error, onChoose }: { bootstrap: Bootstrap; busy: boolean; error?: string; onChoose?: (id: string) => Promise<void> }) {
+  const choices = bootstrap.tournaments ?? [];
+  if (choices.length < 2) return error ? <p className="form-error" role="alert">{error}</p> : null;
+  return <section className="survey-picker" aria-labelledby="survey-picker-title" aria-busy={busy}>
+    <div><p>SELECT EVENT</p><h2 id="survey-picker-title">참가신청할 대회를 선택해 주세요</h2><small>대회별로 신청이 따로 저장됩니다. 진행 중인 대회를 선택한 뒤 학교로 로그인해 주세요.</small></div>
+    <label><span>대회 선택</span><select value={bootstrap.tournament?.id ?? ""} disabled={busy} onChange={(event) => void onChoose?.(event.target.value)}>{choices.map((item) => <option key={item.id} value={item.id}>{item.academicYear} · {item.name} · {item.surveyState.open ? "진행 중" : item.surveyState.code === "NOT_STARTED" ? "시작 전" : "종료"}</option>)}</select></label>
+    {bootstrap.tournament && <div className="survey-picker-detail"><b>{schoolLevelsLabel(bootstrap.tournament.schoolLevels)}</b><span>{formatEventCardDate(bootstrap.tournament.surveyStart)} ~ {formatEventCardDate(bootstrap.tournament.surveyEnd)}</span></div>}
+    {busy && <p role="status">선택한 대회를 불러오는 중입니다…</p>}{error && <p className="form-error" role="alert">{error}</p>}
+  </section>;
+}
+
+function SchoolLogin({ bootstrap, onLogin, onChooseTournament, switchingSurvey = false, choiceError = "" }: { bootstrap: Bootstrap; onLogin: (session: SchoolSession) => void; onChooseTournament?: (id: string) => Promise<void>; switchingSurvey?: boolean; choiceError?: string }) {
   const [selectedSchool, setSelectedSchool] = useState("");
   const [query, setQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState<"all" | SchoolLevel>("all");
+  const eligibleLevels = schoolLevels(bootstrap.tournament?.schoolLevels);
+  const mixedLevels = eligibleLevels.length > 1;
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [submitting, setBusy] = useState(false);
+  const busy = submitting || switchingSurvey;
   const [error, setError] = useState("");
   const filteredSchools = useMemo(
-    () => bootstrap.schools.filter((school) => school.name.includes(query.trim())).sort((a, b) => a.displayOrder - b.displayOrder),
-    [bootstrap.schools, query],
+    () => bootstrap.schools.filter((school) => school.name.includes(query.trim()) && (levelFilter === "all" || (school.schoolLevel ?? "middle") === levelFilter)).sort((a, b) => Number((a.schoolLevel ?? "middle") === "middle") - Number((b.schoolLevel ?? "middle") === "middle") || a.displayOrder - b.displayOrder),
+    [bootstrap.schools, query, levelFilter],
   );
   const selectedName = bootstrap.schools.find((school) => school.id === selectedSchool)?.name;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!selectedSchool || !password || !bootstrap.surveyState.open) return;
+    if (busy || !selectedSchool || !password || !bootstrap.surveyState.open) return;
     setBusy(true);
     setError("");
     try {
       const session = await api<SchoolSession>("school/login", {
         method: "POST",
-        body: JSON.stringify({ schoolId: selectedSchool, password }),
+        body: JSON.stringify({ schoolId: selectedSchool, password, tournamentId: bootstrap.tournament?.id }),
       });
       onLogin(session);
     } catch (requestError) {
@@ -338,13 +380,15 @@ function SchoolLogin({ bootstrap, onLogin }: { bootstrap: Bootstrap; onLogin: (s
       <header className="brand-bar"><Brand tournament={bootstrap.tournament} /><div className="header-right"><span>학교별 온라인 참가 신청</span><a className="admin-link" href="/admin">관리자</a></div></header>
       <section className="login-stage" id="top">
         <div className="page-intro"><ApplicationIntro tournament={bootstrap.tournament} /><ApplicationSteps current={1} /></div>
+        <SurveyPicker bootstrap={bootstrap} busy={busy} error={choiceError} onChoose={onChooseTournament} />
         <div className="login-layout"><EventCard tournament={bootstrap.tournament} sports={bootstrap.sports} schoolCount={bootstrap.schools.length} />
           <section className="login-card school-login-card" aria-labelledby="login-title">
             <div className="school-selection-heading"><div><h2 id="login-title"><UiIcon name="school" />우리 학교 선택</h2><p>학교를 선택한 뒤 기관번호로 로그인해 주세요.</p></div><span>전체 <b>{bootstrap.schools.length}</b>개교</span></div>
             <form className="login-form" onSubmit={submit} aria-busy={busy}>
               <label className="school-search"><span className="sr-only">학교명 검색</span><UiIcon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} type="search" placeholder="학교명으로 빠르게 찾기" /></label>
+              {mixedLevels && <div className="school-level-tabs" role="group" aria-label="학교급 필터"><button type="button" aria-pressed={levelFilter === "all"} onClick={() => setLevelFilter("all")}>전체 <b>{bootstrap.schools.length}</b></button>{SCHOOL_LEVELS.filter((level) => eligibleLevels.includes(level.value)).map((level) => <button type="button" key={level.value} aria-pressed={levelFilter === level.value} onClick={() => setLevelFilter(level.value as SchoolLevel)}>{level.label} <b>{bootstrap.schools.filter((school) => (school.schoolLevel ?? "middle") === level.value).length}</b></button>)}</div>}
               <div className="school-picker" role="radiogroup" aria-label="학교 선택">
-                {filteredSchools.map((school) => <button key={school.id} type="button" role="radio" aria-checked={selectedSchool === school.id} disabled={busy} className={selectedSchool === school.id ? "selected" : ""} title={school.name} onClick={() => { setSelectedSchool(school.id); setError(""); }}><span className="school-order">{String(school.displayOrder).padStart(2, "0")}</span><span className="school-name">{school.name}</span><i aria-hidden="true">✓</i></button>)}
+                {filteredSchools.map((school) => <button key={school.id} type="button" role="radio" aria-checked={selectedSchool === school.id} disabled={busy} className={selectedSchool === school.id ? "selected" : ""} title={school.name} onClick={() => { setSelectedSchool(school.id); setError(""); }}><span className="school-order" aria-label={`${mixedLevels ? schoolLevelLabel(school.schoolLevel) : "학교"} 순번 ${school.displayOrder}`}>{String(school.displayOrder).padStart(2, "0")}</span><span className="school-label-stack"><span className="school-name">{school.name}</span>{mixedLevels && <small className="school-level-tag">{schoolLevelLabel(school.schoolLevel)}</small>}</span><i aria-hidden="true">✓</i></button>)}
                 {!filteredSchools.length && <p className="school-empty">검색한 학교를 찾을 수 없습니다.</p>}
               </div>
               <div className="login-bottom"><p className="selected-school-note" aria-live="polite"><span className="selected-school-label">선택한 학교</span>{selectedName ? <b title={selectedName}>✓ {selectedName}</b> : <b>학교를 선택해 주세요</b>}</p><div className="login-controls">
@@ -382,7 +426,7 @@ function SurveyForm({ session }: { session: SchoolSession }) {
     const controller = new AbortController();
     setParticipantsLoading(true);
     setParticipantsError("");
-    api<ParticipantOverview>("school/participants", { signal: controller.signal })
+    api<ParticipantOverview>(`school/participants?tournamentId=${encodeURIComponent(session.tournament.id)}&schoolId=${encodeURIComponent(session.school.id)}`, { signal: controller.signal })
       .then((data) => {
         if (controller.signal.aborted) return;
         if (data.tournamentId !== session.tournament.id) throw new Error("대회가 변경되었습니다. 다시 로그인해 주세요.");
@@ -391,7 +435,7 @@ function SurveyForm({ session }: { session: SchoolSession }) {
       .catch((requestError) => {
         if (controller.signal.aborted) return;
         setParticipants(null);
-        setParticipantsError(requestError instanceof Error ? requestError.message : "신청 학교를 불러오지 못했습니다.");
+        setParticipantsError(requestError instanceof Error ? requestError.message : "참가 신청 학교를 불러오지 못했습니다.");
       })
       .finally(() => { if (!controller.signal.aborted) setParticipantsLoading(false); });
     return () => controller.abort();
@@ -445,12 +489,12 @@ function SurveyForm({ session }: { session: SchoolSession }) {
   function setTeamCount(sport: Sport, division: Division, count: number) {
     setSelections((current) => {
       if (!Number.isInteger(count) || count < 1 || count > sport.maxTeamsPerDivision) {
-        setError(`${sport.name} ${division.name}는 한 종별에서 최대 ${sport.maxTeamsPerDivision}팀까지 신청할 수 있습니다.`);
+        setError(`${sport.name} ${division.name}는 한 종별에서 최대 ${sport.maxTeamsPerDivision}팀까지 선택할 수 있습니다.`);
         return current;
       }
       const next = { ...current, [division.id]: count };
       if (totalForSport(sport, next) > sport.maxTeamsPerSchool) {
-        setError(`${sport.name}는 모든 종별을 합쳐 학교 전체 최대 ${sport.maxTeamsPerSchool}팀까지 신청할 수 있습니다.`);
+        setError(`${sport.name}는 모든 종별을 합쳐 학교 전체 최대 ${sport.maxTeamsPerSchool}팀까지 선택할 수 있습니다.`);
         return current;
       }
       setError("");
@@ -485,7 +529,7 @@ function SurveyForm({ session }: { session: SchoolSession }) {
           return;
         }
         if (totalForSport(sport) > sport.maxTeamsPerSchool) {
-          setError(`${sport.name}는 모든 종별을 합쳐 학교 전체 최대 ${sport.maxTeamsPerSchool}팀까지 신청할 수 있습니다.`);
+          setError(`${sport.name}는 모든 종별을 합쳐 학교 전체 최대 ${sport.maxTeamsPerSchool}팀까지 선택할 수 있습니다.`);
           return;
         }
       }
@@ -495,6 +539,8 @@ function SurveyForm({ session }: { session: SchoolSession }) {
       const saved = await api<{ ok: true; survey: Survey }>("school/survey", {
         method: "PUT",
         body: JSON.stringify({
+          tournamentId: session.tournament.id,
+          schoolId: session.school.id,
           revision,
           noParticipation,
           selections: Object.entries(selections).map(([divisionId, teamCount]) => ({ divisionId, teamCount })),
@@ -507,21 +553,24 @@ function SurveyForm({ session }: { session: SchoolSession }) {
     } finally { setBusy(false); }
   }
 
-  async function leave() {
-    try { await api("school/logout", { method: "POST", body: "{}" }); } finally { window.location.replace("/"); }
+  async function leave(chooseAnother = false) {
+    if (busy) return;
+    if (chooseAnother && !window.confirm("저장하지 않은 변경 내용은 반영되지 않습니다. 대회 선택 화면으로 이동할까요?")) return;
+    try { await api("school/logout", { method: "POST", body: "{}" }); }
+    finally { window.location.replace(chooseAnother ? "/" : `/?tournamentId=${encodeURIComponent(session.tournament.id)}`); }
   }
 
   return (
     <main className="survey-shell">
-      <header className="survey-topbar"><Brand /><div className="survey-account"><span>{session.school.name.slice(0, 1)}</span><p><b title={session.school.name}>{session.school.name}</b><small>학교 참가 신청</small></p><button type="button" onClick={() => void leave()}>로그아웃</button></div></header>
+      <header className="survey-topbar"><Brand tournament={session.tournament} /><div className="survey-account"><span>{session.school.name.slice(0, 1)}</span><p><b title={session.school.name}>{session.school.name}</b><small>학교 참가 신청</small></p><button type="button" disabled={busy} onClick={() => void leave(true)}>다른 대회 선택</button><button type="button" disabled={busy} onClick={() => void leave()}>로그아웃</button></div></header>
       <form className="survey-content" onSubmit={save}>
         <section className="application-heading"><div><span className="academic-year-badge">{session.tournament.academicYear}학년도</span><h1><small>{session.school.name}</small>우리 학교 참가 신청</h1><p><SentenceFlow text={session.tournament.name} /></p></div><ApplicationSteps current={2} /></section>
-        <div className="application-period"><UiIcon name="calendar" /><b>참가 신청 기간</b><span className="period-date">{formatDate(session.tournament.surveyStart)}</span><span className="period-date">— {formatDate(session.tournament.surveyEnd)}</span><small>한국시간</small></div>
+        <div className="application-period"><UiIcon name="calendar" /><b>신청 기간</b><span className="period-date">{formatDate(session.tournament.surveyStart)}</span><span className="period-date">— {formatDate(session.tournament.surveyEnd)}</span><small>한국시간</small></div>
         {session.survey.submitted && <div className="prefill-banner"><span>✓</span><p><b>기존 신청 내용을 불러왔습니다.</b><small className="prefill-meta"><span>마지막 저장 {formatDate(session.survey.updatedAt)}</span><span>· 변경 후 다시 저장해 주세요.</span></small></p></div>}
 
         <div className="application-layout"><div className="application-main">
-        <div className="intent-control"><span>이번 대회 참가 여부</span><div className="intent-options" role="group" aria-label="참가 여부"><button type="button" aria-pressed={!noParticipation} disabled={busy} onClick={() => { setNoParticipation(false); setError(""); }}>참가합니다</button><button type="button" aria-pressed={noParticipation} disabled={busy} onClick={chooseNoParticipation}>참가하지 않습니다</button></div></div>
-        {noParticipation ? <><section className="application-none"><UiIcon name="school" /><h2>이번 대회는 참가하지 않습니다.</h2><p>‘참가 신청 저장’을 누르면<br />우리 학교가 신청 완료로 집계됩니다.</p></section><section className="participant-none-overview" aria-label="종목별 신청 학교 현황">{session.sports.map((sport) => <article key={sport.id}><h3>{sport.name}</h3><ParticipantSportLink sport={sport} data={participants?.sports.find((item) => item.id === sport.id)} loading={participantsLoading} error={participantsError} disabled={busy || success} onOpen={() => openParticipants(sport)} /></article>)}</section></> : <section className="sports-grid">
+        <div className="intent-control"><span>이번 대회 참가 여부</span><div className="intent-options" role="group" aria-label="참가 여부"><button type="button" aria-pressed={!noParticipation} disabled={busy} onClick={() => { setNoParticipation(false); setError(""); }}>참가 신청합니다</button><button type="button" aria-pressed={noParticipation} disabled={busy} onClick={chooseNoParticipation}>참가 신청하지 않습니다</button></div></div>
+        {noParticipation ? <><section className="application-none"><UiIcon name="school" /><h2>이번 대회는 참가 신청하지 않습니다.</h2><p>‘참가 신청 저장’을 누르면<br />우리 학교가 신청 완료로 집계됩니다.</p></section><section className="participant-none-overview" aria-label="종목별 참가 신청 학교 현황">{session.sports.map((sport) => <article key={sport.id}><h3>{sport.name}</h3><ParticipantSportLink sport={sport} data={participants?.sports.find((item) => item.id === sport.id)} loading={participantsLoading} error={participantsError} disabled={busy || success} onOpen={() => openParticipants(sport)} /></article>)}</section></> : <section className="sports-grid">
           {session.sports.map((sport, index) => {
             const enabled = enabledSports.includes(sport.id);
             const total = totalForSport(sport);
@@ -553,8 +602,8 @@ function SurveyForm({ session }: { session: SchoolSession }) {
 
 function ParticipantSportLink({ sport, data, loading, error, disabled, onOpen }: { sport: Sport; data?: SportParticipants; loading: boolean; error: string; disabled: boolean; onOpen: () => void }) {
   return <div className="participant-sport-strip">
-    <div><span className="participant-strip-label">저장된 참가 신청</span><b>{loading ? "현황 확인 중…" : error || !data ? "현황을 확인해 주세요" : `${data.schoolCount}개교 · ${data.teamCount}팀`}</b></div>
-    <button type="button" className="participant-open-button" aria-label={`${sport.name} 신청 학교 보기`} aria-haspopup="dialog" aria-controls="school-participants-dialog" disabled={disabled} onClick={onOpen}>신청 학교 보기 <UiIcon name="arrow" /></button>
+    <div><span className="participant-strip-label">저장된 신청</span><b>{loading ? "현황 확인 중…" : error || !data ? "현황을 확인해 주세요" : `${data.schoolCount}개교 · ${data.teamCount}팀`}</b></div>
+    <button type="button" className="participant-open-button" aria-label={`${sport.name} 참가 신청 학교 보기`} aria-haspopup="dialog" aria-controls="school-participants-dialog" disabled={disabled} onClick={onOpen}>참가 신청 학교 보기 <UiIcon name="arrow" /></button>
   </div>;
 }
 
@@ -590,14 +639,14 @@ function SchoolParticipantsDialog({ sport, data, loading, error, queriedAt, onRe
   const available = !loading && !error && data !== null;
   return <dialog ref={dialog} id="school-participants-dialog" className="school-participants-dialog" aria-labelledby="school-participants-title" aria-describedby="school-participants-note" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose(); } }}>
     <section className="school-participants-surface">
-      <header><div><p>PARTICIPATING SCHOOLS</p><h2 id="school-participants-title">{sport.name} <span>신청 학교</span></h2></div><button type="button" className="participants-close" aria-label="신청 학교 창 닫기" onClick={onClose}>×</button></header>
+      <header><div><p>PARTICIPATING SCHOOLS</p><h2 id="school-participants-title">{sport.name} <span>참가 신청 학교</span></h2></div><button type="button" className="participants-close" aria-label="참가 신청 학교 창 닫기" onClick={onClose}>×</button></header>
       <p id="school-participants-note">저장 완료된 신청만 표시됩니다. 신청 기간 중에는 바뀔 수 있습니다.</p>
       <div className="participant-filter" role="group" aria-label="참가 종별 필터"><button type="button" aria-pressed={selectedId === "all"} onClick={() => setDivisionId("all")}>전체</button>{(data?.divisions ?? sport.divisions).map((division) => <button type="button" key={division.id} aria-pressed={selectedId === division.id} onClick={() => setDivisionId(division.id)}>{division.name}</button>)}</div>
       <div className="participant-dialog-stats" aria-live="polite"><div><b>{available ? schoolCount : "—"}</b><span>참가 학교</span></div><div><b>{available ? teamCount : "—"}</b><span>신청 팀</span></div>{available && <p>{selectedDivision ? selectedDivision.name : data.divisions.map((division) => `${division.name} ${division.teamCount}팀`).join(" · ")}</p>}</div>
       <div className="participant-dialog-list" aria-busy={loading} aria-live="polite">
-        {loading ? <div className="participant-empty"><span className="loading-ring" /><b>신청 학교를 확인하고 있습니다.</b></div> : error || !data ? <div className="participant-empty" role="alert"><b><SentenceFlow text={error || "현황을 불러오지 못했습니다."} /></b><button type="button" className="outline-button" onClick={onRefresh}>다시 불러오기</button></div> : !visibleSchools.length ? <div className="participant-empty"><UiIcon name="school" /><b>아직 신청한 학교가 없습니다.</b><p>{selectedDivision ? `${selectedDivision.name}에 저장된 신청이 없습니다.` : "이 종목의 첫 참가 신청을 기다리고 있어요."}</p></div> : <ul>{visibleSchools.map((school) => {
+        {loading ? <div className="participant-empty"><span className="loading-ring" /><b>참가 신청 학교를 확인하고 있습니다.</b></div> : error || !data ? <div className="participant-empty" role="alert"><b><SentenceFlow text={error || "현황을 불러오지 못했습니다."} /></b><button type="button" className="outline-button" onClick={onRefresh}>다시 불러오기</button></div> : !visibleSchools.length ? <div className="participant-empty"><UiIcon name="school" /><b>아직 참가 신청한 학교가 없습니다.</b><p>{selectedDivision ? `${selectedDivision.name}에 저장된 신청이 없습니다.` : "이 종목의 첫 신청을 기다리고 있어요."}</p></div> : <ul>{visibleSchools.map((school) => {
           const selections = school.selections.filter((selection) => selectedId === "all" || selection.divisionId === selectedId);
-          return <li key={school.schoolId} className={school.isOwnSchool ? "is-own-school" : ""}><div className="participant-school-name"><b>{school.schoolName}</b>{school.isOwnSchool && <span>우리 학교</span>}</div><div className="participant-school-teams">{selections.map((selection) => <span key={selection.divisionId}>{selection.divisionName} <b>{selection.teamCount}팀</b></span>)}</div><b className="participant-school-total">{selections.reduce((sum, selection) => sum + selection.teamCount, 0)}<small>팀</small></b></li>;
+          return <li key={school.schoolId} className={school.isOwnSchool ? "is-own-school" : ""}><div className="participant-school-name"><b>{school.schoolName}</b>{school.schoolLevel && <small className="school-level-tag">{schoolLevelLabel(school.schoolLevel)}</small>}{school.isOwnSchool && <span>우리 학교</span>}</div><div className="participant-school-teams">{selections.map((selection) => <span key={selection.divisionId}>{selection.divisionName} <b>{selection.teamCount}팀</b></span>)}</div><b className="participant-school-total">{selections.reduce((sum, selection) => sum + selection.teamCount, 0)}<small>팀</small></b></li>;
         })}</ul>}
       </div>
       <footer><div><small>{queriedAt && !error ? `${new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(queriedAt))} 조회` : "저장된 신청 기준"}</small><button type="button" onClick={onRefresh} disabled={loading}>현황 새로고침</button></div><button type="button" className="solid-button" onClick={onClose}>닫기</button></footer>
@@ -762,7 +811,7 @@ function AdminLogin({ onLogin }: { onLogin: () => Promise<void> }) {
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "로그인하지 못했습니다."); }
     finally { setBusy(false); }
   }
-  return <main className="site-shell admin-login-shell"><header className="brand-bar"><Brand admin /><a className="admin-link" href="/">교사용 페이지</a></header><section className="admin-login-stage"><div><p className="eyebrow"><span /> ADMINISTRATION</p><h1 className="admin-login-title"><span>참가 신청을</span><span>한눈에 관리하세요.</span></h1><p className="admin-login-copy">대회·신청 기간·종목을 설정하고 42개교의 신청 현황을 실시간으로 확인합니다.</p></div><section className="login-card admin-login-card"><div className="card-accent" /><div className="card-heading"><span className="step-badge">A</span><div><p>SECURE ACCESS</p><h2>관리자 로그인</h2></div></div>{notice && <p className="login-status" role="status">✓ <SentenceFlow text={notice} /></p>}<form className="login-form" onSubmit={submit}><label><span>관리자 아이디</span><input name="username" autoComplete="username" required /></label><label><span>비밀번호</span><input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert"><SentenceFlow text={error} /></p>}<button className="primary-action" disabled={busy}>{busy ? "확인 중…" : "관리자 화면 열기"}<span>→</span></button></form><div className="security-note"><span>✓</span><p><b>관리자 전용</b><small>모든 관리 기능은 서버에서 권한을 다시 확인합니다.</small></p></div></section></section></main>;
+  return <main className="site-shell admin-login-shell"><header className="brand-bar"><Brand admin /><a className="admin-link" href="/">교사용 페이지</a></header><section className="admin-login-stage"><div><p className="eyebrow"><span /> ADMINISTRATION</p><h1 className="admin-login-title"><span>참가 신청을</span><span>한눈에 관리하세요.</span></h1><p className="admin-login-copy">대회·신청 기간·대상 학교·종목을 설정하고 학교별 신청 현황을 실시간으로 확인합니다.</p></div><section className="login-card admin-login-card"><div className="card-accent" /><div className="card-heading"><span className="step-badge">A</span><div><p>SECURE ACCESS</p><h2>관리자 로그인</h2></div></div>{notice && <p className="login-status" role="status">✓ <SentenceFlow text={notice} /></p>}<form className="login-form" onSubmit={submit}><label><span>관리자 아이디</span><input name="username" autoComplete="username" required /></label><label><span>비밀번호</span><input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert"><SentenceFlow text={error} /></p>}<button className="primary-action" disabled={busy}>{busy ? "확인 중…" : "관리자 화면 열기"}<span>→</span></button></form><div className="security-note"><span>✓</span><p><b>관리자 전용</b><small>모든 관리 기능은 서버에서 권한을 다시 확인합니다.</small></p></div></section></section></main>;
 }
 
 function AdminAccountSettings({ currentUsername }: { currentUsername: string }) {
@@ -847,28 +896,30 @@ function AdminAccountSettings({ currentUsername }: { currentUsername: string }) 
   </section>;
 }
 
-function SportEditor({ sport, busy, onSave, onCancel }: {
+function SportEditor({ sport, levels, isNew = false, busy, onSave, onCancel }: {
   sport: Sport;
+  levels: SchoolLevel[];
+  isNew?: boolean;
   busy: boolean;
   onSave: (payload: SportUpdatePayload) => Promise<void>;
-  onCancel: () => void;
+  onCancel?: () => void;
 }) {
   const [name, setName] = useState(sport.name);
   const [maxTeamsPerSchool, setMaxTeamsPerSchool] = useState(sport.maxTeamsPerSchool);
   const [maxTeamsPerDivision, setMaxTeamsPerDivision] = useState(sport.maxTeamsPerDivision);
   const [divisions, setDivisions] = useState<DivisionDraft[]>(() => {
-    const existing = sport.divisions.map((division) => ({ key: division.id, id: division.id, name: division.name }));
-    return existing.length ? existing : [{ key: "new-initial", name: "" }];
+    const existing = sport.divisions.map((division) => ({ key: division.id, id: division.id, name: division.name, schoolLevel: division.schoolLevel ?? "middle" as SchoolLevel }));
+    return existing.length ? existing : SCHOOL_LEVELS.filter((level) => levels.includes(level.value as SchoolLevel)).flatMap((level) => [level.maleDivision, level.femaleDivision].map((name, index) => ({ key: `new-${level.value}-${index}`, name, schoolLevel: level.value as SchoolLevel })));
   });
 
-  function updateDivision(key: string, value: string) {
-    setDivisions((current) => current.map((division) => division.key === key ? { ...division, name: value } : division));
+  function updateDivision(key: string, values: Partial<Pick<DivisionDraft, "name" | "schoolLevel">>) {
+    setDivisions((current) => current.map((division) => division.key === key ? { ...division, ...values } : division));
   }
 
   function addDivision() {
     setDivisions((current) => current.length >= 8
       ? current
-      : [...current, { key: `new-${Date.now()}-${current.length}`, name: "" }]);
+      : [...current, { key: `new-${Date.now()}-${current.length}`, name: "", schoolLevel: levels[0] }]);
   }
 
   function removeDivision(key: string) {
@@ -879,7 +930,7 @@ function SportEditor({ sport, busy, onSave, onCancel }: {
     event.preventDefault();
     await onSave({
       name,
-      divisions: divisions.map((division) => ({ id: division.id, name: division.name })),
+      divisions: divisions.map((division) => ({ id: division.id, name: division.name, schoolLevel: division.schoolLevel })),
       maxTeamsPerSchool,
       maxTeamsPerDivision,
     });
@@ -893,23 +944,28 @@ function SportEditor({ sport, busy, onSave, onCancel }: {
         <label><span>한 종별 최대 팀 수</span><input type="number" min="1" max={maxTeamsPerSchool || 20} value={maxTeamsPerDivision} onChange={(event) => setMaxTeamsPerDivision(Number(event.target.value))} required /></label>
       </div>
     </div>
-    <p className="team-limit-rule-note"><b>학교 전체</b>는 모든 종별의 합계이고, <b>한 종별</b>은 남중부 또는 여중부 각각의 한도입니다.</p>
+    <p className="team-limit-rule-note"><b>학교 전체</b>는 모든 종별의 합계이고, <b>한 종별</b>은 남자부·여자부 등 각 종별의 한도입니다.</p>
     <fieldset className="sport-divisions">
-      <legend>종별</legend>
+      <legend>종별 <small>학교급별로 구분</small></legend>
       <div className="sport-division-list">
-        {divisions.map((division, index) => <div className="sport-division-row" key={division.key}>
-          <label><span className="sr-only">종별 {index + 1}</span><input value={division.name} maxLength={30} placeholder={`종별 ${index + 1}`} onChange={(event) => updateDivision(division.key, event.target.value)} required /></label>
+        {divisions.map((division, index) => <div className="sport-division-row school-level-division-row" key={division.key}>
+          {levels.length > 1 ? <label className="division-school-level"><span className="sr-only">종별 {index + 1} 학교급</span><select value={division.schoolLevel} disabled={busy} onChange={(event) => updateDivision(division.key, { schoolLevel: event.target.value as SchoolLevel })}>{levels.map((level) => <option key={level} value={level}>{schoolLevelLabel(level)}</option>)}</select></label> : <span className="school-level-chip">{schoolLevelLabel(levels[0])}</span>}
+          <label><span className="sr-only">종별 {index + 1}</span><input value={division.name} maxLength={30} placeholder={`종별 ${index + 1}`} onChange={(event) => updateDivision(division.key, { name: event.target.value })} required /></label>
           <button type="button" className="sport-division-remove" disabled={busy || divisions.length === 1} onClick={() => removeDivision(division.key)} aria-label={`${division.name || `종별 ${index + 1}`} 삭제`}>×</button>
         </div>)}
       </div>
       <button type="button" className="sport-division-add" disabled={busy || divisions.length >= 8} onClick={addDivision}>+ 종별 추가</button>
     </fieldset>
-    <footer><button type="button" className="outline-button" disabled={busy} onClick={onCancel}>취소</button><button type="submit" className="solid-button" disabled={busy}>{busy ? "저장 중…" : "수정 내용 저장"}</button></footer>
+    <footer>{onCancel && <button type="button" className="outline-button" disabled={busy} onClick={onCancel}>취소</button>}<button type="submit" className="solid-button" disabled={busy}>{busy ? "저장 중…" : isNew ? "+ 종목 추가" : "수정 내용 저장"}</button></footer>
   </form>;
 }
 
+function NewSurveyForm({ academicYear, start, end, busy, onCreate }: { academicYear: number; start: string; end: string; busy: boolean; onCreate: (event: FormEvent<HTMLFormElement>) => Promise<void> }) {
+  return <form onSubmit={onCreate}><fieldset className="school-level-fieldset"><legend>참가 대상 학교 <small>복수 선택 가능</small></legend><div className="school-level-options">{SCHOOL_LEVELS.map((level) => <label key={level.value}><input type="checkbox" name="schoolLevels" value={level.value} defaultChecked={level.value === "middle"} disabled={busy} /><span>{level.label}</span></label>)}</div><p>한 학교급 이상 선택해 주세요. 선택한 학교만 이 대회에 신청할 수 있습니다.</p></fieldset><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={academicYear} required /></label><label><span>대회명</span><input name="name" placeholder="예: 동부학교스포츠클럽 후반기 대회" required /></label></div><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={start} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={end} required /></label></div><button className="solid-button" disabled={busy}>+ 새 대회 추가</button></form>;
+}
+
 function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (eventId?: string) => Promise<void> }) {
-  const [tab, setTab] = useState<"results" | "event" | "sports" | "account">("results");
+  const [tab, setTab] = useState<"results" | "event" | "sports" | "schools" | "account">("results");
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState<"all" | "sport" | null>(null);
   const [exportSportId, setExportSportId] = useState(dashboard.sports[0]?.id ?? "");
@@ -918,10 +974,14 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
   const [editingSportId, setEditingSportId] = useState<string | null>(null);
   const [resultFilter, setResultFilter] = useState<"all" | "done" | "waiting">("all");
   const [resultQuery, setResultQuery] = useState("");
+  const [resultLevel, setResultLevel] = useState<SchoolLevel | null>(null);
   const [selectedDivision, setSelectedDivision] = useState<{ eventId: string; sport: Sport; division: Division } | null>(null);
   const divisionModalRef = useRef<HTMLElement>(null);
   const divisionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selected = dashboard.selectedEvent;
+  const selectedLevels = schoolLevels(selected?.schoolLevels) as SchoolLevel[];
+  const mixedLevels = selectedLevels.length > 1;
+  const [newSportVersion, setNewSportVersion] = useState(0);
   const selectedExportSportId = dashboard.sports.some((sport) => sport.id === exportSportId)
     ? exportSportId
     : dashboard.sports[0]?.id ?? "";
@@ -929,8 +989,11 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
   const responded = dashboard.rows.filter((row) => row.submitted);
   const noParticipation = responded.filter((row) => row.noParticipation);
   const participationRows = responded.filter((row) => !row.noParticipation);
-  const filteredRows = dashboard.rows.filter((row) => row.school.name.includes(resultQuery.trim()) && (resultFilter === "all" || (resultFilter === "done" ? row.submitted : !row.submitted)));
-  const divisionColumns = dashboard.sports.flatMap((sport) => sport.divisions.map((division) => ({ sport, division })));
+  const visibleResultLevel = resultLevel && selectedLevels.includes(resultLevel) ? resultLevel : selectedLevels[0] ?? "middle";
+  const levelRows = dashboard.rows.filter((row) => (row.school.schoolLevel ?? "middle") === visibleResultLevel);
+  const levelResponded = levelRows.filter((row) => row.submitted);
+  const filteredRows = levelRows.filter((row) => row.school.name.includes(resultQuery.trim()) && (resultFilter === "all" || (resultFilter === "done" ? row.submitted : !row.submitted)));
+  const divisionColumns = dashboard.sports.flatMap((sport) => sport.divisions.filter((division) => (division.schoolLevel ?? "middle") === visibleResultLevel).map((division) => ({ sport, division })));
   const selectionCount = (row: ResultRow, divisionId: string) => {
     const storedCount = row.selections.find((item) => item.divisionId === divisionId)?.teamCount ?? 0;
     return storedCount > 0 ? storedCount : 0;
@@ -1096,12 +1159,14 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
   async function createNewEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const payload = eventPayload(form);
+    const chosenLevels = new FormData(form).getAll("schoolLevels").map(String);
+    if (!chosenLevels.length) { setError("참가 대상 학교급을 하나 이상 선택해 주세요."); setNotice(""); return; }
+    const payload = { ...eventPayload(form), schoolLevels: chosenLevels };
     await run(async () => {
       const created = await api<{ id: string }>("admin/events", { method: "POST", body: JSON.stringify(payload) });
       await refresh(created.id);
       form.reset();
-    }, "새 대회를 추가했습니다. 활성화하면 교사 화면에 반영됩니다.");
+    }, "새 대회를 추가했습니다. 기존 대회와 신청은 보존되며, ‘교사 화면에 공개’를 누르기 전까지 비공개 상태입니다.");
   }
 
   async function activateSelected() {
@@ -1109,7 +1174,15 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
     await run(async () => {
       await api(`admin/events/${encodeURIComponent(selected.id)}/activate`, { method: "POST", body: "{}" });
       await refresh(selected.id);
-    }, "해당 대회를 교사용 화면의 현재 대회로 설정했습니다.");
+    }, "대회를 교사 화면에 공개했습니다. 기존에 공개한 대회는 그대로 유지되며, 교사가 대회 목록에서 선택할 수 있습니다.");
+  }
+
+  async function unpublishSelected() {
+    if (!selected || !window.confirm("이 대회를 교사 화면에서 숨길까요? 기존 신청은 보존되며, 다시 공개할 수 있습니다.")) return;
+    await run(async () => {
+      await api(`admin/events/${encodeURIComponent(selected.id)}/unpublish`, { method: "POST", body: "{}" });
+      await refresh(selected.id);
+    }, "대회를 비공개로 전환했습니다. 기존 신청은 그대로 보존됩니다.");
   }
 
   async function saveHeaderCopy(copy: Record<string, string>) {
@@ -1140,16 +1213,12 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
     }, "안내 카드 문구를 저장했습니다. 현재 대회인 경우 교사 화면에 바로 반영됩니다.");
   }
 
-  async function addSport(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function addSport(payload: SportUpdatePayload) {
     if (!selected) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const divisions = String(data.get("divisions") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
     await run(async () => {
-      await api("admin/sports", { method: "POST", body: JSON.stringify({ eventId: selected.id, name: data.get("name"), divisions, maxTeamsPerSchool: Number(data.get("maxTeamsPerSchool")), maxTeamsPerDivision: Number(data.get("maxTeamsPerDivision")) }) });
+      await api("admin/sports", { method: "POST", body: JSON.stringify({ eventId: selected.id, ...payload }) });
       await refresh(selected.id);
-      form.reset();
+      setNewSportVersion((version) => version + 1);
     }, "새 종목을 추가했습니다.");
   }
 
@@ -1183,13 +1252,13 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
   const newEndDate = selected?.surveyEnd ? new Date(new Date(selected.surveyEnd).getTime() + 14 * 86400000).toISOString() : "2026-09-21T09:00:00.000Z";
 
   return <main className="admin-shell">
-    <aside className="admin-sidebar"><Brand admin /><nav><small>OVERVIEW</small><button type="button" className={tab === "results" ? "active" : ""} aria-current={tab === "results" ? "page" : undefined} onClick={() => setTab("results")}><span>≡</span>결과 종합</button><small>MANAGEMENT</small><button type="button" className={tab === "event" ? "active" : ""} aria-current={tab === "event" ? "page" : undefined} onClick={() => setTab("event")}><span>▣</span>대회·기간 설정</button><button type="button" className={tab === "sports" ? "active" : ""} aria-current={tab === "sports" ? "page" : undefined} onClick={() => setTab("sports")}><span>◉</span>종목 관리</button><button type="button" className={tab === "account" ? "active" : ""} aria-current={tab === "account" ? "page" : undefined} onClick={() => setTab("account")}><span>⚙</span>계정 설정</button></nav><div className="admin-side-foot"><span>{dashboard.adminUsername.slice(0, 1).toUpperCase()}</span><p><b>{dashboard.adminUsername}</b><small>참가 신청 설정·집계</small></p><button type="button" onClick={() => void logoutAdmin()} aria-label="관리자 로그아웃">↗</button></div></aside>
+    <aside className="admin-sidebar"><Brand admin /><nav><small>OVERVIEW</small><button type="button" className={tab === "results" ? "active" : ""} aria-current={tab === "results" ? "page" : undefined} onClick={() => setTab("results")}><span>≡</span>결과 종합</button><small>MANAGEMENT</small><button type="button" className={tab === "event" ? "active" : ""} aria-current={tab === "event" ? "page" : undefined} onClick={() => setTab("event")}><span>▣</span>대회·기간 설정</button><button type="button" className={tab === "sports" ? "active" : ""} aria-current={tab === "sports" ? "page" : undefined} onClick={() => setTab("sports")}><span>◉</span>종목 관리</button><button type="button" className={tab === "schools" ? "active" : ""} aria-current={tab === "schools" ? "page" : undefined} onClick={() => setTab("schools")}><span>▤</span>학교 관리</button><button type="button" className={tab === "account" ? "active" : ""} aria-current={tab === "account" ? "page" : undefined} onClick={() => setTab("account")}><span>⚙</span>계정 설정</button></nav><div className="admin-side-foot"><span>{dashboard.adminUsername.slice(0, 1).toUpperCase()}</span><p><b>{dashboard.adminUsername}</b><small>참가 신청 설정·집계</small></p><button type="button" onClick={() => void logoutAdmin()} aria-label="관리자 로그아웃">↗</button></div></aside>
     <section className="admin-main">
-      <header className="admin-topbar"><div><p>ADMIN CONSOLE</p><h1>{tab === "results" ? "참가 신청 결과 종합" : tab === "event" ? "대회·신청 기간 설정" : tab === "sports" ? "종목 관리" : "관리자 계정 설정"}</h1></div><div>{tab !== "account" && <label><span>조회 대회</span><select value={selected?.id ?? ""} disabled={busy || exporting !== null} onChange={(event) => { const eventId = event.target.value; setSelectedDivision(null); void run(() => refresh(eventId), ""); }}>{dashboard.events.map((tournament) => <option value={tournament.id} key={tournament.id}>{tournament.academicYear} · {tournament.name}{tournament.status === "active" ? " (현재)" : ""}</option>)}</select></label>}<a href="/" target="_blank" rel="noreferrer">교사 화면 ↗</a><button type="button" className="admin-topbar-logout" onClick={() => void logoutAdmin()}>로그아웃</button></div></header>
+      <header className="admin-topbar"><div><p>ADMIN CONSOLE</p><h1>{tab === "results" ? "참가 신청 결과 종합" : tab === "event" ? "대회·신청 기간 설정" : tab === "sports" ? "종목 관리" : tab === "schools" ? "학교·기관번호 관리" : "관리자 계정 설정"}</h1></div><div>{tab !== "account" && tab !== "schools" && <label><span>조회 대회</span><select value={selected?.id ?? ""} disabled={busy || exporting !== null} onChange={(event) => { const eventId = event.target.value; setSelectedDivision(null); void run(() => refresh(eventId), ""); }}>{dashboard.events.map((tournament) => <option value={tournament.id} key={tournament.id}>{tournament.academicYear} · {tournament.name}{tournament.status === "active" ? " (공개)" : ""}</option>)}</select></label>}<a href="/" target="_blank" rel="noreferrer">교사 화면 ↗</a><button type="button" className="admin-topbar-logout" onClick={() => void logoutAdmin()}>로그아웃</button></div></header>
       {error && <div className="admin-flash error" role="alert"><SentenceFlow text={error} /></div>}
       {notice && <div className="admin-flash success" role="status"><SentenceFlow text={notice} /></div>}
-      {tab === "account" ? <AdminAccountSettings currentUsername={dashboard.adminUsername} /> : !selected ? <section className="admin-empty"><b>등록된 대회가 없습니다.</b><button type="button" onClick={() => setTab("event")}>+ 첫 대회 추가</button></section> : tab === "results" ? <>
-        <section className="dashboard-title"><div><p>{selected.academicYear} SCHOOL SPORTS</p><h2 title={selected.name}>{selected.name}</h2><small className="dashboard-meta"><span className="dashboard-meta-group"><span>{formatDate(selected.surveyStart)}</span><i aria-hidden="true">~</i><span>{formatDate(selected.surveyEnd)}</span></span><span className="dashboard-meta-group"><i aria-hidden="true">·</i><span>{dashboard.surveyState?.message}</span></span></small></div><span className={`status-chip ${dashboard.surveyState?.open ? "open" : "closed"}`}>{dashboard.surveyState?.open ? "진행 중" : "접수 중지"}</span></section>
+      {tab === "account" ? <AdminAccountSettings currentUsername={dashboard.adminUsername} /> : tab === "schools" ? <AdminSchoolManagement onAdded={() => refresh(selected?.id)} /> : !selected ? <section className="admin-empty"><b>등록된 대회가 없습니다.</b><button type="button" onClick={() => setTab("event")}>+ 첫 대회 추가</button></section> : tab === "results" ? <>
+        <section className="dashboard-title"><div><p>{selected.academicYear} SCHOOL SPORTS</p><h2 title={selected.name}>{selected.name}</h2><small className="dashboard-meta"><span className="dashboard-meta-group">{schoolLevelsLabel(selected.schoolLevels)}</span><span className="dashboard-meta-group"><span>{formatDate(selected.surveyStart)}</span><i aria-hidden="true">~</i><span>{formatDate(selected.surveyEnd)}</span></span><span className="dashboard-meta-group"><i aria-hidden="true">·</i><span>{dashboard.surveyState?.message}</span></span></small></div><span className={`status-chip ${dashboard.surveyState?.open ? "open" : "closed"}`}>{dashboard.surveyState?.open ? "진행 중" : "신청 기간 아님"}</span></section>
         <section className="metric-grid"><article><span>전체 대상 학교</span><b>{dashboard.rows.length}<small>개교</small></b></article><article><span>신청 완료</span><b>{responded.length}<small>개교</small></b><i style={{ width: `${dashboard.rows.length ? (responded.length / dashboard.rows.length) * 100 : 0}%` }} /></article><article><span>미신청</span><b>{dashboard.rows.length - responded.length}<small>개교</small></b></article><article><span>참가 신청 없음</span><b>{noParticipation.length}<small>개교</small></b></article></section>
         <section className="sport-metrics" aria-label="종목과 종별 참가 현황">{sportMetrics.map(({ sport, schoolCount, teamCount, divisionMetrics }) => <article className={sport.active ? "" : "inactive"} key={sport.id}>
           <header className="sport-metric-head"><div className="sport-metric-title"><span title={sport.name}>{sport.name}</span>{!sport.active && <small>비활성 종목</small>}</div><div className="sport-metric-totals"><p><b>{schoolCount}</b><small>참가 학교</small></p><p><b>{teamCount}</b><small>신청 팀</small></p></div></header>
@@ -1203,25 +1272,25 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
             <button type="button" className="export-all-button" disabled={exporting !== null} onClick={() => void exportWorkbook("all")}>{exporting === "all" ? "전체 파일 만드는 중…" : "모두 내보내기"}<span aria-hidden="true">↓</span></button>
           </div>
         </section>
-        <section className="results-panel"><header><div><p>ALL SCHOOLS</p><h2>학교별 신청 현황</h2></div><span>{responded.length} / {dashboard.rows.length}개교 신청</span></header><div className="results-filter-bar"><div className="result-tabs" role="group" aria-label="신청 상태 필터">{([{ value: "all", label: "전체", count: dashboard.rows.length }, { value: "done", label: "신청 완료", count: responded.length }, { value: "waiting", label: "미신청", count: dashboard.rows.length - responded.length }] as const).map((item) => <button type="button" key={item.value} aria-pressed={resultFilter === item.value} onClick={() => setResultFilter(item.value)}>{item.label} {item.count}</button>)}</div><input type="search" aria-label="결과 학교명 검색" placeholder="학교명 검색" value={resultQuery} onChange={(event) => setResultQuery(event.target.value)} /></div><div className="results-table-wrap"><table><caption className="sr-only">{selected.name} 학교별 신청 현황</caption><thead><tr><th scope="col">#</th><th scope="col">학교명</th><th scope="col">신청 상태</th>{divisionColumns.map(({ sport, division }) => <th scope="col" key={division.id}><small>{sport.name}</small>{division.name}</th>)}<th scope="col">마지막 저장</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={row.school.id}><td>{row.school.displayOrder}</td><td><b title={row.school.name}>{row.school.name}</b></td><td><span className={`response-status ${!row.submitted ? "waiting" : row.noParticipation ? "none" : "done"}`}>{!row.submitted ? "미신청" : row.noParticipation ? "신청 없음" : "신청 완료"}</span></td>{divisionColumns.map(({ division }) => { const count = selectionCount(row, division.id); return <td key={division.id}>{count ? <b>{count}팀</b> : <span className="dash">-</span>}</td>; })}<td>{formatDate(row.updatedAt)}</td></tr>)}{!filteredRows.length && <tr><td colSpan={divisionColumns.length + 4}>조건에 맞는 학교가 없습니다.</td></tr>}</tbody></table></div></section>
+        <section className="results-panel"><header><div><p>ALL SCHOOLS</p><h2>학교별 신청 현황</h2></div><span>{schoolLevelLabel(visibleResultLevel)} · {levelResponded.length} / {levelRows.length}개교 신청</span></header><div className="results-school-tabs" role="tablist" aria-label="학교별 신청 현황 학교급">{SCHOOL_LEVELS.map((level) => <button type="button" key={level.value} role="tab" id={`response-tab-${level.value}`} aria-controls="response-level-panel" aria-selected={visibleResultLevel === level.value} tabIndex={visibleResultLevel === level.value ? 0 : -1} disabled={!selectedLevels.includes(level.value as SchoolLevel)} onClick={() => { setResultLevel(level.value as SchoolLevel); setResultFilter("all"); }} onKeyDown={(event) => { if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return; event.preventDefault(); const next = event.key === "Home" ? selectedLevels[0] : event.key === "End" ? selectedLevels[selectedLevels.length - 1] : selectedLevels.find((value) => value !== visibleResultLevel) ?? visibleResultLevel; setResultLevel(next); setResultFilter("all"); document.getElementById(`response-tab-${next}`)?.focus(); }}>{level.value === "elementary" ? "초등" : "중등"}<b>{dashboard.rows.filter((row) => (row.school.schoolLevel ?? "middle") === level.value).length}개교</b></button>)}</div><div role="tabpanel" id="response-level-panel" aria-labelledby={`response-tab-${visibleResultLevel}`}><div className="results-filter-bar"><div className="result-tabs" role="group" aria-label="신청 상태 필터">{([{ value: "all", label: "전체", count: levelRows.length }, { value: "done", label: "신청 완료", count: levelResponded.length }, { value: "waiting", label: "미신청", count: levelRows.length - levelResponded.length }] as const).map((item) => <button type="button" key={item.value} aria-pressed={resultFilter === item.value} onClick={() => setResultFilter(item.value)}>{item.label} {item.count}</button>)}</div><input type="search" aria-label="결과 학교명 검색" placeholder="학교명 검색" value={resultQuery} onChange={(event) => setResultQuery(event.target.value)} /></div><div className="results-table-wrap"><table><caption className="sr-only">{selected.name} {schoolLevelLabel(visibleResultLevel)} 신청 현황</caption><thead><tr><th scope="col">#</th><th scope="col">학교명</th><th scope="col">신청 상태</th>{divisionColumns.map(({ sport, division }) => <th scope="col" key={division.id}><small>{sport.name}</small>{division.name}</th>)}<th scope="col">마지막 저장</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={row.school.id}><td>{row.school.displayOrder}</td><td><b title={row.school.name}>{row.school.name}</b>{mixedLevels && <small className="result-school-level">{schoolLevelLabel(row.school.schoolLevel)}</small>}</td><td><span className={`response-status ${!row.submitted ? "waiting" : row.noParticipation ? "none" : "done"}`}>{!row.submitted ? "미신청" : row.noParticipation ? "참가 신청 없음" : "신청 완료"}</span></td>{divisionColumns.map(({ division }) => { const count = selectionCount(row, division.id); return <td key={division.id}>{count ? <b>{count}팀</b> : <span className="dash">-</span>}</td>; })}<td>{formatDate(row.updatedAt)}</td></tr>)}{!filteredRows.length && <tr><td colSpan={divisionColumns.length + 4}>조건에 맞는 학교가 없습니다.</td></tr>}</tbody></table></div></div></section>
       </> : tab === "event" ? <section className="admin-settings-grid">
-        <article className="settings-card"><header><span>01</span><div><p>CURRENT EVENT</p><h2>대회 정보·신청 기간</h2></div></header><form key={selected.id} onSubmit={updateSelectedEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear} required /></label><label><span>대회 상태</span><input value={selected.status === "active" ? "현재 교사 화면에 공개 중" : "임시저장 · 비공개"} disabled /></label></div><label><span>대회명</span><input name="name" defaultValue={selected.name} required /></label><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={seoulInputValue(selected.surveyStart)} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(selected.surveyEnd)} required /></label></div><footer><button type="button" className="outline-button" disabled={busy || selected.status === "active"} onClick={() => void activateSelected()}>{selected.status === "active" ? "현재 대회" : "이 대회를 현재 대회로 설정"}</button><button className="solid-button" disabled={busy}>변경 사항 저장</button></footer></form></article>
-        <article className="settings-card new-event-card"><header><span>02</span><div><p>NEW EVENT</p><h2>새 대회 추가</h2></div></header><p>새 대회에는 배구·3x3 농구·피구가 기본 종목으로 추가됩니다.</p><form onSubmit={createNewEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear + 1} required /></label><label><span>대회명</span><input name="name" placeholder="예: 동부학교스포츠클럽 전반기 대회" required /></label></div><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={newStart} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(newEndDate)} required /></label></div><button className="solid-button" disabled={busy}>+ 새 대회 추가</button></form></article>
+        <article className="settings-card"><header><span>01</span><div><p>CURRENT EVENT</p><h2>대회 정보·신청 기간</h2></div></header><form key={selected.id} onSubmit={updateSelectedEvent}><div className="form-two"><label><span>학년도</span><input name="academicYear" type="number" min="2020" max="2100" defaultValue={selected.academicYear} required /></label><label><span>대회 상태</span><input value={selected.status === "active" ? "교사 화면에 공개 중" : "임시저장 · 비공개"} disabled /></label></div><label><span>대회명</span><input name="name" defaultValue={selected.name} required /></label><div className="survey-target-summary"><span>참가 대상</span><div>{selectedLevels.map((level) => <span className="school-level-chip" key={level}>{schoolLevelLabel(level)}</span>)}</div><small>기존 신청을 보호하기 위해 참가 대상은 변경되지 않습니다. 다른 대상의 대회는 ‘새 대회 추가’에서 만들어 주세요.</small></div><div className="form-two"><label><span>신청 시작 · 한국시간</span><input name="surveyStart" type="datetime-local" defaultValue={seoulInputValue(selected.surveyStart)} required /></label><label><span>신청 종료 · 한국시간</span><input name="surveyEnd" type="datetime-local" defaultValue={seoulInputValue(selected.surveyEnd)} required /></label></div><p className="publication-help">여러 대회를 동시에 공개할 수 있습니다. 신청 기간이 겹치면 교사가 목록에서 선택해 신청합니다.</p><footer className="survey-publication-actions">{selected.status === "active" ? <button type="button" className="outline-button" disabled={busy} onClick={() => void unpublishSelected()}>비공개로 전환</button> : <button type="button" className="outline-button" disabled={busy} onClick={() => void activateSelected()}>교사 화면에 공개</button>}<button className="solid-button" disabled={busy}>변경 사항 저장</button></footer></form></article>
+        <article className="settings-card new-event-card"><header><span>02</span><div><p>NEW EVENT</p><h2>새 대회 추가</h2></div></header><p className="prose-copy"><span className="sentence-unit">기존 대회와 신청을 보존하면서 별도의 대회를 추가합니다.</span>{" "}<span className="sentence-unit">새 대회는 비공개로 생성되며, 선택한 학교급의 종별과 배구·3x3 농구·피구가 기본으로 추가됩니다.</span></p><NewSurveyForm academicYear={selected.academicYear + 1} start={newStart} end={seoulInputValue(newEndDate)} busy={busy} onCreate={createNewEvent} /></article>
         <PageHeaderEditor key={`header-${selected.id}-${selected.headerCopy}`} tournament={selected} busy={busy} onSave={saveHeaderCopy} onSaveLogo={saveLogoImage} />
         <EventCardEditor key={`card-${selected.id}-${selected.cardCopy}-${selected.academicYear}-${selected.name}`} tournament={selected} sports={dashboard.sports} schoolCount={dashboard.rows.length} busy={busy} onSave={saveCardCopy} />
       </section> : <section className="admin-settings-grid sports-management">
         <article className="settings-card"><header><span>01</span><div><p>SPORTS LIST</p><h2 title={selected.name}>{selected.name} 종목</h2></div></header><p className="prose-copy"><span className="sentence-unit">종별과 팀 수 기준을 수정할 수 있습니다.</span>{" "}<span className="sentence-unit">신청 기록이 있는 종목은 삭제할 수 없으며 신청 기간 중에는 비활성화도 제한됩니다.</span></p><div className="managed-sports">{dashboard.sports.map((sport) => <section className={`managed-sport-card${sport.active ? "" : " inactive"}`} key={sport.id} aria-labelledby={`sport-name-${sport.id}`}>
           <div className="managed-sport-summary"><span className="managed-sport-icon" aria-hidden="true">{sport.name.slice(0, 1)}</span><div className="managed-sport-copy"><span><b id={`sport-name-${sport.id}`} title={sport.name}>{sport.name}</b><i className={sport.active ? "active" : "inactive"}>{sport.active ? "활성" : "비활성"}</i></span><small title={`${sport.divisions.map((division) => division.name).join(" · ")} · ${teamLimitLabel(sport)}`}>{sport.divisions.map((division) => division.name).join(" · ")} · 학교 전체 최대 <span className="number-unit">{sport.maxTeamsPerSchool}팀</span> · 한 종별 최대 <span className="number-unit">{sport.maxTeamsPerDivision}팀</span></small></div><div className="managed-sport-actions"><button type="button" disabled={busy} aria-expanded={editingSportId === sport.id} aria-controls={`sport-editor-${sport.id}`} aria-label={`${sport.name} 수정`} onClick={() => setEditingSportId((current) => current === sport.id ? null : sport.id)}>{editingSportId === sport.id ? "닫기" : "수정"}</button><button type="button" disabled={busy} aria-label={`${sport.name} ${sport.active ? "비활성화" : "활성화"}`} onClick={() => void toggleSportActive(sport)}>{sport.active ? "비활성화" : "활성화"}</button><button type="button" className="delete" disabled={busy} aria-label={`${sport.name} 삭제`} onClick={() => void removeSport(sport)}>삭제</button></div></div>
-          {editingSportId === sport.id && <div id={`sport-editor-${sport.id}`}><SportEditor key={`${sport.id}-${sport.divisions.map((division) => division.id).join("-")}`} sport={sport} busy={busy} onSave={(payload) => updateExistingSport(sport.id, payload)} onCancel={() => setEditingSportId(null)} /></div>}
+          {editingSportId === sport.id && <div id={`sport-editor-${sport.id}`}><SportEditor key={`${sport.id}-${sport.divisions.map((division) => division.id).join("-")}`} sport={sport} levels={selectedLevels} busy={busy} onSave={(payload) => updateExistingSport(sport.id, payload)} onCancel={() => setEditingSportId(null)} /></div>}
         </section>)}</div></article>
-        <article className="settings-card"><header><span>02</span><div><p>ADD SPORT</p><h2>새 종목 추가</h2></div></header><form onSubmit={addSport}><label><span>종목명</span><input name="name" placeholder="예: 배드민턴" required /></label><label><span>종별 <small>쉼표로 구분</small></span><input name="divisions" defaultValue="남중부, 여중부" required /></label><div className="form-two"><label><span>학교 전체 최대 팀 수 <small>모든 종별 합계</small></span><input name="maxTeamsPerSchool" type="number" min="1" max="20" defaultValue="2" required /></label><label><span>한 종별 최대 팀 수 <small>남중부·여중부 각각</small></span><input name="maxTeamsPerDivision" type="number" min="1" max="20" defaultValue="1" required /></label></div><p className="team-limit-rule-note">예: 전체 2팀·한 종별 1팀은 남중부 1팀과 여중부 1팀만 가능합니다.</p><button className="solid-button" disabled={busy}>+ 종목 추가</button></form></article>
+        <article className="settings-card"><header><span>02</span><div><p>ADD SPORT</p><h2>새 종목 추가</h2></div></header><SportEditor key={`new-sport-${selected.id}-${newSportVersion}`} sport={{ id: "new-sport", name: "", displayOrder: 0, teamCountEnabled: false, maxTeamsPerSchool: 2, maxTeamsPerDivision: 1, active: true, divisions: [] }} levels={selectedLevels} isNew busy={busy} onSave={addSport} /></article>
       </section>}
     </section>
     {activeSelectedDivision && <div className="division-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedDivision(null); }}>
       <section id="division-participants-dialog" className="division-participants-modal" ref={divisionModalRef} role="dialog" aria-modal="true" aria-labelledby="division-modal-title" aria-describedby="division-modal-description">
         <header><div><p>DIVISION PARTICIPANTS</p><h2 id="division-modal-title"><span className="division-modal-sport" title={activeSelectedDivision.sport.name}>{activeSelectedDivision.sport.name}</span><span className="division-modal-name" title={activeSelectedDivision.division.name}>· {activeSelectedDivision.division.name}</span></h2><small id="division-modal-description" title={selected?.name}>{selected?.name} 참가 신청 학교</small></div><button type="button" className="division-modal-close" aria-label="참가 학교 모달 닫기" onClick={() => setSelectedDivision(null)}>×</button></header>
         <div className="division-modal-summary"><p><span>참가 학교</span><b>{selectedDivisionParticipants.length}<small>개교</small></b></p><p><span>신청 팀</span><b>{selectedDivisionTeamCount}<small>팀</small></b></p></div>
-        <div className="division-participant-list">{selectedDivisionParticipants.length ? <ol>{selectedDivisionParticipants.map(({ row, teamCount }) => <li key={row.school.id}><span>{row.school.displayOrder}</span><p><b title={row.school.name}>{row.school.name}</b><small>학교 순번 {row.school.displayOrder}</small></p><strong>{teamCount}<small>팀</small></strong></li>)}</ol> : <div className="division-participant-empty"><span>–</span><b>아직 신청한 학교가 없습니다.</b><small>해당 종별에 저장된 신청 팀이 없습니다.</small></div>}</div>
+        <div className="division-participant-list">{selectedDivisionParticipants.length ? <ol>{selectedDivisionParticipants.map(({ row, teamCount }) => <li key={row.school.id}><span>{row.school.displayOrder}</span><p><b title={row.school.name}>{row.school.name}</b><small>{mixedLevels ? `${schoolLevelLabel(row.school.schoolLevel)} · ` : ""}학교 순번 {row.school.displayOrder}</small></p><strong>{teamCount}<small>팀</small></strong></li>)}</ol> : <div className="division-participant-empty"><span>–</span><b>아직 참가 신청한 학교가 없습니다.</b><small>해당 종별에 저장된 신청 팀이 없습니다.</small></div>}</div>
         <footer><small>학교는 로그인 페이지에 등록된 순서로 표시됩니다.</small><button type="button" onClick={() => setSelectedDivision(null)}>확인</button></footer>
       </section>
     </div>}

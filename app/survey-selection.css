@@ -1,0 +1,41 @@
+.survey-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 1.1fr);
+  align-items: center;
+  gap: 18px 28px;
+  padding: 24px 28px;
+  margin: 0 0 24px;
+  border: 1px solid #cbdedb;
+  border-radius: 20px;
+  background: #f4fbf9;
+  color: #173d3e;
+  min-width: 0;
+}
+.survey-picker p { margin: 0 0 6px; font-size: 11px; letter-spacing: .12em; color: #54817a; }
+.survey-picker h2 { margin: 0 0 8px; font-size: clamp(17px, 1.6vw, 21px); }
+.survey-picker small { display: block; color: #577571; font-size: 13px; line-height: 1.7; word-break: keep-all; overflow-wrap: break-word; }
+.survey-picker label { display: grid; gap: 8px; min-width: 0; font-size: 13px; }
+.survey-picker select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 48px; border: 1px solid #b8d1cc; border-radius: 12px; padding: 10px 36px 10px 14px; color: #164844; background-color: #fff; font: inherit; text-overflow: ellipsis; }
+.survey-picker-detail { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; font-size: 13px; }
+.survey-picker-detail b { padding: 6px 12px; background: #deeee8; border-radius: 8px; white-space: nowrap; }
+.survey-picker-detail span { word-break: keep-all; }
+.survey-picker p[role] { grid-column: 1 / -1; font-size: 14px; letter-spacing: normal; }
+.results-school-tabs { display: flex; gap: 8px; padding: 0 26px 18px; }
+.results-school-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; min-width: 132px; padding: 10px 18px; border: 1px solid #d7e4e0; border-radius: 12px; font: inherit; font-size: 15px; color: #426762; background: #f6faf8; white-space: nowrap; }
+.results-school-tabs button b { font-size: 12px; }
+.results-school-tabs button[aria-selected="true"] { background: #074d47; color: #fff; border-color: #074d47; }
+.results-school-tabs button:disabled { opacity: .4; cursor: not-allowed; }
+.results-school-tabs button:focus-visible, .survey-picker select:focus-visible { outline: 3px solid #4eaba1; outline-offset: 3px; }
+.publication-help { margin: 0; color: #587872; line-height: 1.7; font-size: 13px; word-break: keep-all; }
+.survey-publication-actions { flex-wrap: wrap; gap: 10px; }
+.survey-publication-actions button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+.survey-account { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .survey-picker { grid-template-columns: minmax(0, 1fr); padding: 20px; gap: 16px; }
+  .survey-picker select { font-size: 13px; }
+  .results-school-tabs { padding: 0 16px 16px; }
+  .results-school-tabs button { flex: 1; min-width: 0; padding: 10px; }
+  .survey-picker-detail { font-size: 12px; }
+  .survey-topbar .survey-account { gap: 10px; }
+  .survey-topbar .survey-account button { padding: 9px 11px; font-size: 12px; }
+}

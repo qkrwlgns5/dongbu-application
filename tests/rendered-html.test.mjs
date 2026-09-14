@@ -8,6 +8,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { normalizeSchoolPasswordInput } from "../worker/school-password.js";
 
 const root = new URL("../", import.meta.url);
+const schoolManagementSource = (await readFile(new URL("app/admin-school-management.tsx", root), "utf8"))
+  .replace('"react"', JSON.stringify(import.meta.resolve("react")))
+  .replace('"./school-levels.js"', JSON.stringify(new URL("app/school-levels.js", root).href));
+const schoolManagementCompiled = ts.transpileModule(schoolManagementSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
+const schoolManagementUrl = `data:text/javascript;base64,${Buffer.from(schoolManagementCompiled).toString("base64")}`;
 
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -74,15 +79,21 @@ test("uses reliable route links and the revised two-line application title", asy
 
 test("renders saved main-page branding safely with a linked year badge and matching admin preview", async () => {
   const source = (await readFile(new URL("app/survey-app-client.tsx", root), "utf8"))
+    .replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl))
     .replace('"react"', JSON.stringify(import.meta.resolve("react")))
     .replace('"./event-card-copy.js"', JSON.stringify(new URL("app/event-card-copy.js", root).href))
-    .replace('"./page-header-copy.js"', JSON.stringify(new URL("app/page-header-copy.js", root).href));
+    .replace('"./page-header-copy.js"', JSON.stringify(new URL("app/page-header-copy.js", root).href))
+    .replace('"./school-levels.js"', JSON.stringify(new URL("app/school-levels.js", root).href));
   const compiled = ts.transpileModule(source + "\nexport { SchoolLogin, PageHeaderEditor, ApplicationIntro };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
   const { SchoolLogin, PageHeaderEditor, ApplicationIntro } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
   const tournament = { id: "preview", academicYear: 2027, name: "새 대회", headerCopy: "{}", cardCopy: "{}", surveyStart: "2026-09-13T15:00:00.000Z", surveyEnd: "2026-09-18T08:00:00.000Z", status: "active" };
   const bootstrap = { tournament, schools: [], sports: [], surveyState: { open: true, code: "OPEN", message: "" } };
   const renderLogin = () => renderToStaticMarkup(createElement(SchoolLogin, { bootstrap, onLogin() {} }));
+  tournament.name = "동부학교스포츠클럽 후반기 대회";
   const defaults = renderLogin();
+  assert.match(defaults, /<h2 data-long-title="true">/);
+  const cardCss = await readFile(new URL("app/redesign.css", root), "utf8");
+  assert.match(cardCss, /h2\[data-long-title="true"\]\s*\{\s*font-size: clamp\(22px, 2vw, 28px\)/);
   assert.match(defaults, /data-length="1"[^>]*>D<\/span>/);
   assert.match(defaults, /동부교육지원청 학교스포츠클럽대회/);
   assert.match(defaults, /DONG-BU SCHOOL SPORTS/);
@@ -147,7 +158,8 @@ test("accepts Korean school codes entered with an English keyboard layout", asyn
   assert.equal(normalizeSchoolPasswordInput("ehdek99"), "동다99");
   assert.equal(normalizeSchoolPasswordInput("EHDEJ98"), "동더98");
   assert.equal(normalizeSchoolPasswordInput(" 동다99 "), "동다99");
-  assert.equal(normalizeSchoolPasswordInput("ehdek999"), "ehdek999");
+  assert.equal(normalizeSchoolPasswordInput("ehdek999"), "동다999");
+  assert.equal(normalizeSchoolPasswordInput("ehdek99999"), "ehdek99999");
   assert.equal(normalizeSchoolPasswordInput("not-a-school-code"), "not-a-school-code");
   const api = await readFile(new URL("worker/api.ts", root), "utf8");
   assert.match(api, /const password = normalizeSchoolPasswordInput\(body\.password\)/);
@@ -170,7 +182,7 @@ test("separates school-wide and per-division team limits in the application UI",
   assert.match(client, /학교 전체 최대/);
   assert.match(client, /한 종별 최대/);
   assert.match(client, /`전체 \$\{sport\.maxTeamsPerSchool\}팀 · 종별 \$\{sport\.maxTeamsPerDivision\}팀`/);
-  assert.doesNotMatch(client, /복수 선택 가능/);
+  assert.doesNotMatch(client, /<p className="team-limit">[^<]*복수 선택 가능/);
   assert.match(api, /max_teams_per_division AS maxTeamsPerDivision/);
   assert.match(api, /validateTeamSelection/);
   assert.match(api, /MAX_TEAMS_PER_DIVISION_IN_USE/);
@@ -323,7 +335,7 @@ test("uses Korean-aware wrapping and keeps compact UI tokens together", async ()
 
 test("teacher participant viewing is independent of application edits and locks the modal background", async () => {
   const [client, css] = await Promise.all([readFile(new URL("app/survey-app-client.tsx", root), "utf8"), readFile(new URL("app/redesign.css", root), "utf8")]);
-  assert.match(client, /api<ParticipantOverview>\("school\/participants"/);
+  assert.match(client, /api<ParticipantOverview>\(`school\/participants\?tournamentId=\$\{encodeURIComponent\(session.tournament.id\)\}&schoolId=\$\{encodeURIComponent\(session.school.id\)\}/);
   assert.match(client, /<ParticipantSportLink sport=\{sport\}/);
   assert.match(client, /type="button" className="participant-open-button"/);
   assert.match(client, /aria-controls="school-participants-dialog"/);
@@ -345,4 +357,96 @@ test("sport headings occupy the former badge column without moving the participa
   assert.match(client, /"DODGEBALL"/);
   assert.match(css, /\.sport-card > header \{[^}]*grid-template-columns: minmax\(0, 1fr\) 83px;/);
   assert.match(css, /\.sport-name-block \{[^}]*justify-items: start;[^}]*text-align: left;/);
+});
+
+test("new surveys explicitly choose school levels and preserve legacy middle-school defaults", async () => {
+  const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
+  let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react"))).replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels"]) {
+    source = source.replace(JSON.stringify("./" + name + ".js"), JSON.stringify(new URL("app/" + name + ".js", root).href));
+  }
+  const compiled = ts.transpileModule(source + "\nexport { SchoolLogin, NewSurveyForm, SportEditor, AdminPanel };", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
+  const { SchoolLogin, NewSurveyForm, SportEditor, AdminPanel } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const renderComponent = (component, props) => renderToStaticMarkup(createElement(component, props));
+  const form = renderComponent(NewSurveyForm, { academicYear: 2027, start: "2027-01-01T09:00", end: "2027-01-15T18:00", busy: false, async onCreate() {} });
+  assert.match(form, /<legend>참가 대상 학교/);
+  assert.equal((form.match(/type="checkbox"/g) ?? []).length, 2);
+  assert.match(form, /<input[^>]*type="checkbox"[^>]*name="schoolLevels"[^>]*value="elementary"/);
+  assert.match(form, /<input[^>]*type="checkbox"[^>]*name="schoolLevels"[^>]*checked=""[^>]*value="middle"/);
+  assert.doesNotMatch(form, /<input[^>]*checked=""[^>]*value="elementary"/);
+  assert.match(form, /복수 선택 가능/);
+  assert.match(form, /한 학교급 이상 선택/);
+  assert.match(form, /\+ 새 대회 추가/);
+  assert.match(original, /getAll\("schoolLevels"\)/);
+  assert.match(original, /if \(!chosenLevels.length\)/);
+  assert.match(original, /기존 신청을 보호하기 위해 참가 대상은 변경되지 않습니다/);
+  assert.doesNotMatch(original, /42개교의 신청 현황/);
+  const tournament = { id: "mixed-preview", academicYear: 2027, name: "다음 학년도 참가 신청", headerCopy: "{}", cardCopy: "{}", surveyStart: "2027-01-01T00:00:00.000Z", surveyEnd: "2027-01-15T09:00:00.000Z", status: "draft", schoolLevels: '["elementary","middle"]' };
+  const schools = [
+    { id: "preview-elementary", name: "예시초등학교", displayOrder: 1, schoolLevel: "elementary" },
+    { id: "preview-middle", name: "예시중학교", displayOrder: 1, schoolLevel: "middle" },
+  ];
+  const bootstrap = { tournament, schools, sports: [], surveyState: { open: false, code: "ENDED", message: "기간 종료" } };
+  const mixedLogin = renderComponent(SchoolLogin, { bootstrap, onLogin() {} });
+  assert.match(mixedLogin, /aria-label="학교급 필터"/);
+  assert.match(mixedLogin, /초등학교 순번 1/);
+  assert.match(mixedLogin, /중학교 순번 1/);
+  assert.match(mixedLogin, /동부 관내 초등학교·중학교/);
+  assert.match(mixedLogin, /예시초등학교/);
+  assert.match(mixedLogin, /예시중학교/);
+  const legacyLogin = renderComponent(SchoolLogin, { bootstrap: { ...bootstrap, tournament: { ...tournament, schoolLevels: undefined }, schools: [schools[1]] }, onLogin() {} });
+  assert.doesNotMatch(legacyLogin, /aria-label="학교급 필터"/);
+  assert.match(legacyLogin, /동부 관내 중학교/);
+  const sport = { id: "new", name: "", displayOrder: 0, teamCountEnabled: false, maxTeamsPerSchool: 2, maxTeamsPerDivision: 1, active: true, divisions: [] };
+  const editor = renderComponent(SportEditor, { sport, levels: ["elementary", "middle"], isNew: true, busy: false, async onSave() {} });
+  for (const name of ["남초부", "여초부", "남중부", "여중부"]) assert.match(editor, new RegExp('value="' + name + '"'));
+  assert.equal((editor.match(/<select/g) ?? []).length, 4);
+  assert.match(editor, /종별 1 학교급/);
+  assert.match(editor, /value="elementary" selected=""/);
+  assert.match(editor, /value="middle" selected=""/);
+  const elementaryEditor = renderComponent(SportEditor, { sport, levels: ["elementary"], isNew: true, busy: false, async onSave() {} });
+  assert.doesNotMatch(elementaryEditor, /<select|남중부|여중부/);
+  assert.match(elementaryEditor, /남초부/);
+  const dashboard = { adminUsername: "preview-admin", events: [tournament], selectedEvent: tournament, sports: [], rows: schools.map(school => ({ school, submitted: false, noParticipation: false, revision: 0, updatedAt: null, selections: [] })) };
+  const admin = renderComponent(AdminPanel, { dashboard, async refresh() {} });
+  assert.match(admin, /class="result-school-level">초등학교/);
+  assert.doesNotMatch(admin, /class="result-school-level">중학교/);
+  assert.match(admin, /role="tab"[^>]*id="response-tab-elementary"[^>]*aria-selected="true"/);
+  assert.match(admin, /role="tab"[^>]*id="response-tab-middle"[^>]*aria-selected="false"/);
+  assert.match(admin, /role="tabpanel"[^>]*aria-labelledby="response-tab-elementary"/);
+  assert.match(admin, /초등학교·중학교/);
+});
+
+test("teacher survey selection and school-level response tabs preserve context and isolate rows", async () => {
+  const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
+  let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react"))).replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels"]) source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
+  const compiled = ts.transpileModule(source + "\nexport { SurveyPicker, AdminPanel };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
+  const { SurveyPicker, AdminPanel } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const render = (component, props) => renderToStaticMarkup(createElement(component, props));
+  const tournament = { id: "both", academicYear: 2027, name: "함께 대회", headerCopy: "{}", cardCopy: "{}", surveyStart: "2027-01-01T00:00:00Z", surveyEnd: "2027-01-15T09:00:00Z", status: "active", schoolLevels: '["elementary","middle"]', surveyState: { open: true, code: "OPEN", message: "진행 중" } };
+  const second = { ...tournament, id: "second", name: "다른 대회", surveyState: { open: false, code: "NOT_STARTED", message: "시작 전" } };
+  const bootstrap = { tournament, tournaments: [tournament, second], schools: [], sports: [], surveyState: tournament.surveyState };
+  const picker = render(SurveyPicker, { bootstrap, busy: false });
+  assert.match(picker, /참가신청할 대회를 선택해 주세요/);
+  assert.match(picker, /<span>대회 선택<\/span>/);
+  assert.match(picker, /value="both" selected=""/);
+  assert.match(picker, /다른 대회 · 시작 전/);
+  assert.match(picker, /초등학교·중학교/);
+  assert.equal(render(SurveyPicker, { bootstrap: { ...bootstrap, tournaments: [tournament] }, busy: false }), "");
+  assert.match(render(SurveyPicker, { bootstrap, busy: true }), /<select[^>]*disabled=""/);
+  const sports = [{ id: "sport", name: "배구", active: true, maxTeamsPerSchool: 2, maxTeamsPerDivision: 1, divisions: [{ id: "e", name: "남초부", schoolLevel: "elementary" }, { id: "m", name: "남중부", schoolLevel: "middle" }] }];
+  const rows = [{ school: { id: "e", name: "초등행학교", schoolLevel: "elementary", displayOrder: 1 }, submitted: true, noParticipation: false, selections: [{ divisionId: "e", teamCount: 1 }] }, { school: { id: "m", name: "중등행학교", schoolLevel: "middle", displayOrder: 1 }, submitted: false, selections: [] }];
+  const dashboard = { adminUsername: "test-admin", selectedEvent: tournament, events: [tournament], sports, rows };
+  const admin = render(AdminPanel, { dashboard, async refresh() {} });
+  const table = admin.match(/<table>[\s\S]*?<\/table>/)?.[0];
+  assert.ok(table); assert.match(table, /초등행학교/); assert.match(table, /남초부/); assert.doesNotMatch(table, /중등행학교|남중부/);
+  assert.match(admin, /초등학교 · 1 \/ 1개교 신청/);
+  const middleAdmin = render(AdminPanel, { dashboard: { ...dashboard, selectedEvent: { ...tournament, schoolLevels: '["middle"]' } }, async refresh() {} });
+  const middleTable = middleAdmin.match(/<table>[\s\S]*?<\/table>/)?.[0];
+  assert.match(middleTable, /중등행학교/); assert.match(middleTable, /남중부/); assert.doesNotMatch(middleTable, /초등행학교|남초부/);
+  assert.match(original, /tournamentId: session.tournament.id,\s*schoolId: session.school.id,/);
+  assert.match(original, /다른 대회 선택/); assert.match(original, /공개 대회 목록으로 돌아가기/);
 });

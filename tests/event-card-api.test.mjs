@@ -16,6 +16,7 @@ const source = (await readFile(sourceUrl, "utf8"))
   .replace('"./team-limits.js"', JSON.stringify(new URL("../worker/team-limits.js", import.meta.url).href))
   .replace('"./logo-image.js"', JSON.stringify(new URL("../worker/logo-image.js", import.meta.url).href))
   .replace('"../app/event-card-copy.js"', JSON.stringify(new URL("../app/event-card-copy.js", import.meta.url).href))
+  .replace('"../app/school-levels.js"', JSON.stringify(new URL("../app/school-levels.js", import.meta.url).href))
   .replace('"../app/page-header-copy.js"', JSON.stringify(new URL("../app/page-header-copy.js", import.meta.url).href));
 const { handleApi } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
 
@@ -95,7 +96,7 @@ test("logo images are admin-only, validated, versioned, and survive other settin
     const path = `admin/events/${id}/logo`;
     const options = { method: "PUT", rawBody: logoPng(), contentType: "image/png", cookie };
     const school = await call("school/login", { method: "POST", body: { schoolId: "test-school", password: "ehdek99" } });
-    await call("school/survey", { method: "PUT", cookie: school.cookie, body: { revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }] } });
+    assert.equal((await call("school/survey", { method: "PUT", cookie: school.cookie, body: { tournamentId: school.data.tournament.id, schoolId: school.data.school.id, revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }] } })).status, 200);
     const survey = (await call("school/session", { cookie: school.cookie })).data.survey;
     assert.equal(before.logoKey, "");
     for (const unprivileged of [undefined, school.cookie, "dongbu_admin_session=invalid"]) {
@@ -188,7 +189,11 @@ test("draft logos stay private and failed storage or database writes preserve th
     await call(`admin/events/${id}/activate`, { method: "POST", cookie, body: {} });
     assert.equal((await call(newPath)).status, 200);
     await call(`admin/events/${activeId}/activate`, { method: "POST", cookie, body: {} });
+    assert.equal((await call(newPath)).status, 200, "a published non-default survey logo remains public");
+    assert.equal((await call(`admin/events/${id}/unpublish`, { method: "POST", cookie, body: {} })).status, 200);
     assert.equal((await call(newPath)).status, 401);
+    assert.equal((await call(newPath, { cookie: school.cookie })).status, 401);
+    assert.equal((await call(newPath, { cookie })).status, 200, "administrators can still inspect an unpublished survey logo");
     sqlite.prepare("UPDATE admin_credentials SET auth_version = auth_version + 1").run();
     assert.equal((await call(newPath, { cookie })).status, 401);
     assert.equal((await call(path, options)).status, 401);
@@ -246,7 +251,7 @@ test("card settings are admin-only, per-event, persistent and backward compatibl
     assert.equal((await call(`admin/events/${second.data.id}/card-copy`, { method: "PATCH", cookie, body: { cardCopy: { title: "다른 제목" } } })).status, 200);
     assert.deepEqual(JSON.parse((await call("bootstrap")).data.tournament.cardCopy), body.cardCopy);
     assert.equal((await call("admin/dashboard", { cookie })).data.selectedEvent.id, id);
-    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM schools").get().n, 43);
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM schools WHERE school_level='middle'").get().n, 43);
   } finally { sqlite.close(); }
 });
 
@@ -273,7 +278,7 @@ test("header settings are admin-only and preserve other settings and submitted a
     const body = { headerCopy: { logoText: "동부", brandName: "새 교육지원청", brandSubtitle: "학교 체육", eyebrow: "NEW SCHOOL SPORTS", titlePrimary: "새 대회\n참가 안내", titleSecondary: "<script>text only</script>" } };
     const school = await call("school/login", { method: "POST", body: { schoolId: "test-school", password: "ehdek99" } });
     assert.equal(school.status, 200);
-    assert.equal((await call("school/survey", { method: "PUT", cookie: school.cookie, body: { revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }] } })).status, 200);
+    assert.equal((await call("school/survey", { method: "PUT", cookie: school.cookie, body: { tournamentId: school.data.tournament.id, schoolId: school.data.school.id, revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }] } })).status, 200);
     const savedSurvey = (await call("school/session", { cookie: school.cookie })).data.survey;
     assert.equal((await call(path, { method: "PATCH", body })).status, 401);
     assert.equal((await call(path, { method: "PATCH", body, cookie: school.cookie })).status, 401);
@@ -324,9 +329,9 @@ test("teacher participant lists show only saved active entries in the session to
     assert.equal(listed.tournamentId, id);
     assert.equal(listed.sports.length, 3);
     assert.ok(listed.sports.every((sport) => sport.schoolCount === 0 && sport.teamCount === 0));
-    const save = await call("school/survey", { method: "PUT", cookie: schoolCookie, body: { revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }, { divisionId: "division-basketball-female", teamCount: 1 }] } });
+    const save = await call("school/survey", { method: "PUT", cookie: schoolCookie, body: { tournamentId: id, schoolId: school.data.school.id, revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }, { divisionId: "division-basketball-female", teamCount: 1 }] } });
     assert.equal(save.status, 200);
-    const others = sqlite.prepare("SELECT id FROM schools WHERE id <> 'test-school' ORDER BY display_order LIMIT 3").all();
+    const others = sqlite.prepare("SELECT id FROM schools WHERE id <> 'test-school' AND school_level='middle' ORDER BY display_order LIMIT 3").all();
     sqlite.prepare("INSERT INTO responses (tournament_id, school_id, no_participation, revision) VALUES (?, ?, 0, 1)").run(id, others[0].id);
     sqlite.prepare("INSERT INTO response_items (tournament_id, school_id, division_id, team_count) VALUES (?, ?, 'division-basketball-male', 1)").run(id, others[0].id);
     // An inconsistent nonparticipation row and an orphan item are not public participants.
@@ -340,13 +345,19 @@ test("teacher participant lists show only saved active entries in the session to
     assert.deepEqual(summary.divisions.map((d) => [d.schoolCount, d.teamCount]), [[2, 2], [1, 1]]);
     assert.equal(summary.schools.find((s) => s.isOwnSchool).teamCount, 2);
     assert.equal(summary.schools.find((s) => s.isOwnSchool).schoolName, "검증중학교");
-    assert.deepEqual(Object.keys(summary.schools[0]).sort(), ["isOwnSchool", "schoolId", "schoolName", "selections", "teamCount"].sort());
+    assert.deepEqual(Object.keys(summary.schools[0]).sort(), ["isOwnSchool", "schoolId", "schoolName", "schoolLevel", "selections", "teamCount"].sort());
     assert.doesNotMatch(JSON.stringify(listed), /password|salt|pepper|revision|updatedAt|adminUsername|authVersion/i);
     const second = await call("admin/events", { method: "POST", cookie, body: { academicYear: 2027, name: "다른 대회", surveyStart: start, surveyEnd: end } });
     const otherDivision = sqlite.prepare("SELECT d.id FROM divisions d JOIN sports s ON s.id = d.sport_id WHERE s.tournament_id = ? AND s.name = '3x3 농구' ORDER BY d.display_order LIMIT 1").get(second.data.id).id;
+    // Seed a past saved response while the fixture survey is accepting entries,
+    // then make it private to exercise participant isolation from a draft survey.
+    sqlite.prepare("UPDATE tournaments SET status = 'active' WHERE id = ?").run(second.data.id);
     sqlite.prepare("INSERT INTO responses (tournament_id, school_id, no_participation, revision) VALUES (?, ?, 0, 1)").run(second.data.id, others[0].id);
     sqlite.prepare("INSERT INTO response_items (tournament_id, school_id, division_id, team_count) VALUES (?, ?, ?, 1)").run(second.data.id, others[0].id, otherDivision);
-    assert.equal(basketball(await get(`?eventId=${second.data.id}&schoolId=${others[0].id}`)).teamCount, 3);
+    sqlite.prepare("UPDATE tournaments SET status = 'draft' WHERE id = ?").run(second.data.id);
+    assert.equal(basketball(await get(`?eventId=${second.data.id}`)).teamCount, 3, "the legacy eventId query cannot select another survey's participants");
+    assert.equal((await get(`?eventId=${second.data.id}&schoolId=${others[0].id}`)).code, "SCHOOL_CHANGED");
+    assert.equal((await get(`?tournamentId=${second.data.id}&schoolId=${school.data.school.id}`)).code, "EVENT_CHANGED");
     sqlite.prepare("UPDATE schools SET active = 0 WHERE id = ?").run(others[0].id);
     assert.equal(basketball(await get()).teamCount, 2);
     sqlite.prepare("UPDATE divisions SET active = 0 WHERE id = 'division-basketball-male'").run();
@@ -359,8 +370,11 @@ test("teacher participant lists show only saved active entries in the session to
     sqlite.prepare("UPDATE schools SET active = 1 WHERE id = 'test-school'").run();
     sqlite.prepare("UPDATE tournaments SET survey_end = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), id);
     assert.equal((await call("school/participants", { cookie: schoolCookie })).status, 403);
+    sqlite.prepare("UPDATE tournaments SET survey_end = ? WHERE id = ?").run(end, id);
     assert.equal((await call(`admin/events/${second.data.id}/activate`, { method: "POST", cookie, body: {} })).status, 200);
-    assert.equal((await call("school/participants", { cookie: schoolCookie })).data.code, "EVENT_CHANGED");
+    assert.equal((await call("school/participants", { cookie: schoolCookie })).data.tournamentId, id, "publishing another survey preserves the existing session context");
+    assert.equal((await call(`admin/events/${id}/unpublish`, { method: "POST", cookie, body: {} })).status, 200);
+    assert.equal((await call("school/participants", { cookie: schoolCookie })).data.code, "SURVEY_CLOSED");
   } finally { sqlite.close(); }
 });
 
@@ -372,7 +386,7 @@ test("real login/save/readback retains team limits, nonparticipation, logout and
     assert.match(school.headers.get("set-cookie"), /HttpOnly; Secure; SameSite=Strict/);
     const cookie = school.cookie;
     const selection = (divisionId, teamCount) => ({ divisionId, teamCount });
-    const save = (selections, revision, noParticipation = false) => call("school/survey", { method: "PUT", cookie, body: { selections, revision, noParticipation } });
+    const save = (selections, revision, noParticipation = false) => call("school/survey", { method: "PUT", cookie, body: { tournamentId: school.data.tournament.id, schoolId: school.data.school.id, selections, revision, noParticipation } });
     assert.equal((await save([selection("division-basketball-male", 2)], 0)).data.code, "DIVISION_TEAM_LIMIT_EXCEEDED");
     assert.equal((await save([selection("division-volleyball-male", 2), selection("division-volleyball-female", 1)], 0)).data.code, "SCHOOL_TEAM_LIMIT_EXCEEDED");
     const valid = [selection("division-basketball-male", 1), selection("division-basketball-female", 1)];

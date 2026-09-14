@@ -50,6 +50,27 @@
       "when": 1789128317885,
       "tag": "0008_logo_image",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789380656018,
+      "tag": "0009_school_level_applications",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1789380656072,
+      "tag": "0011_school_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1789380656124,
+      "tag": "0012_school_institution_codes",
+      "breakpoints": true
     }
   ]
 }

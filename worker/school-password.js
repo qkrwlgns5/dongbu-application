@@ -7,8 +7,9 @@
  */
 export function normalizeSchoolPasswordInput(value) {
   const password = String(value ?? "").trim().normalize("NFC");
-  const englishKeyboardCode = /^(ehdek|ehdej)(\d{2})$/iu.exec(password);
+  const englishKeyboardCode = /^(ehdek|ehdej|ehdsk|ehdsj)(\d{2,4})$/iu.exec(password);
   if (!englishKeyboardCode) return password;
-  const prefix = englishKeyboardCode[1].toLowerCase() === "ehdek" ? "동다" : "동더";
+  const prefixes = { ehdek: "동다", ehdej: "동더", ehdsk: "동나", ehdsj: "동너" };
+  const prefix = prefixes[englishKeyboardCode[1].toLowerCase()];
   return `${prefix}${englishKeyboardCode[2]}`;
 }
