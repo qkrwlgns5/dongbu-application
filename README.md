@@ -108,6 +108,12 @@ npm test
 
 `0006_event_card_copy.sql`은 기존 대회 테이블에 기본값이 빈 설정 객체인 `card_copy` 열만 추가합니다. 배포 시 이 마이그레이션을 먼저 적용한 뒤 새 Worker를 배포합니다. 구 버전 Worker와 기존 신청 기록에 호환되며 기존 대회 정보 저장 요청은 카드 문구를 덮어쓰지 않습니다.
 
+## 로고 PNG 호환성 확인
+
+로고 원본은 PNG·JPG·WebP 최대 10MB까지 선택할 수 있으며, 브라우저에서 비율을 유지해 최대 512px PNG로 변환합니다. Safari가 새 canvas PNG에 자동으로 붙이는 EXIF 부가정보(`eXIf`)만 업로드 전에 제거하고, 이미지 픽셀·투명도·색상 정보는 유지합니다. 서버는 CRC·크기·압축 픽셀을 계속 검사하며, 표준 ICC 색상 프로필은 별도의 압축 해제 상한으로 검증합니다.
+
+`tests/logo-image.test.mjs`에는 Safari에서 실제 생성한 작은 합성 PNG로 회귀 테스트가 포함되어 있습니다. 수요조사·참가신청 격리 브라우저 검증은 참가신청 저장소의 `node tests/logo-browser-server.mjs 4319`로 실행합니다. 메모리 SQLite/R2만 사용하며 운영 데이터·계정·원본 파일은 변경하지 않습니다.
+
 ## Cloudflare 배포
 
 1. `dongbu-application-db` D1 데이터베이스를 만듭니다.

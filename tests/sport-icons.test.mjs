@@ -22,7 +22,7 @@ const registry = (await readFile(new URL("app/admin-school-management.tsx", root
 const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
 let client = original.replace('"react"', JSON.stringify(import.meta.resolve("react")))
   .replace('"./admin-school-management"', JSON.stringify(moduleUrl(registry)));
-for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) {
+for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons", "logo-png"]) {
   client = client.replace(JSON.stringify("./" + name + ".js"), JSON.stringify(new URL("app/" + name + ".js", root).href));
 }
 const { SportIconPicker, SportSymbol, SportEditor, AdminPanel } = await import(moduleUrl(

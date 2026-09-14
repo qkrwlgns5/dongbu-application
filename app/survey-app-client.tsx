@@ -7,6 +7,7 @@ import { EVENT_CARD_FIELDS, eventCardCopy, formatEventCardDate } from "./event-c
 import { PAGE_HEADER_FIELDS, pageHeaderCopy } from "./page-header-copy.js";
 import { SCHOOL_LEVELS, schoolLevels, schoolLevelLabel, schoolLevelsLabel } from "./school-levels.js";
 import { SPORT_ICONS, resolveSportIcon } from "./sport-icons.js";
+import { cleanCanvasPngBytes } from "./logo-png.js";
 import AdminSchoolManagement from "./admin-school-management";
 
 type SchoolLevel = "elementary" | "middle";
@@ -681,7 +682,7 @@ function EventCardEditor({ tournament, sports, schoolCount, busy, onSave }: { to
 
 async function prepareLogoImage(file: File): Promise<{ blob: Blob; preview: string }> {
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type.toLowerCase())) throw new Error("PNG·JPG·WebP 사진을 선택해 주세요.");
-  if (!file.size || file.size > 5 * 1024 * 1024) throw new Error("5MB 이하의 사진을 선택해 주세요.");
+  if (!file.size || file.size > 10 * 1024 * 1024) throw new Error("10MB 이하의 사진을 선택해 주세요.");
   const readDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -703,7 +704,8 @@ async function prepareLogoImage(file: File): Promise<{ blob: Blob; preview: stri
   const context = canvas.getContext("2d");
   if (!context) throw new Error("이 브라우저에서 사진을 처리할 수 없습니다.");
   context.drawImage(picture, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("사진 변환에 실패했습니다.")), "image/png"));
+  const encoded = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("사진 변환에 실패했습니다.")), "image/png"));
+  const blob = new Blob([cleanCanvasPngBytes(new Uint8Array(await encoded.arrayBuffer()))], { type: "image/png" });
   if (blob.size > 2 * 1024 * 1024) throw new Error("사진의 용량을 줄인 뒤 다시 선택해 주세요.");
   return { blob, preview: await readDataUrl(blob) };
 }
@@ -750,7 +752,7 @@ function LogoImageEditor({ tournament, busy, onSave }: { tournament: Tournament;
       <h3>로고 이미지</h3>
       <p><SentenceFlow text="사진을 선택한 뒤 ‘로고 이미지 저장’을 누르세요. 이미지가 없으면 아래에 설정한 문자 로고가 표시됩니다." /></p>
       <label className="logo-file-label"><span>이미지 파일 선택</span><input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" disabled={disabled} aria-describedby={`logo-help-${tournament.id}`} onChange={(event) => { void choose(event.target.files?.[0]); }} /></label>
-      <small id={`logo-help-${tournament.id}`}>PNG·JPG·WebP · 최대 5MB · 비율 유지, 최대 512px로 자동 최적화</small>
+      <small id={`logo-help-${tournament.id}`}>PNG·JPG·WebP · 최대 10MB · 비율 유지, 최대 512px로 자동 최적화</small>
       {draft && <p className="logo-file-name" title={draft.name}>선택한 파일: {draft.name}</p>}
       <div className="logo-image-actions">
         <button type="button" className="solid-button" disabled={disabled || !draft} onClick={() => { void save(); }}>{preparing ? "사진 준비 중…" : saving ? "처리 중…" : "로고 이미지 저장"}</button>

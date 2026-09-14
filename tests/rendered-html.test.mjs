@@ -83,6 +83,7 @@ test("renders saved main-page branding safely with a linked year badge and match
     .replace('"react"', JSON.stringify(import.meta.resolve("react")))
     .replace('"./event-card-copy.js"', JSON.stringify(new URL("app/event-card-copy.js", root).href))
     .replace('"./page-header-copy.js"', JSON.stringify(new URL("app/page-header-copy.js", root).href))
+    .replace('"./logo-png.js"', JSON.stringify(new URL("app/logo-png.js", root).href))
     .replace('"./school-levels.js"', JSON.stringify(new URL("app/school-levels.js", root).href))
     .replace('"./sport-icons.js"', JSON.stringify(new URL("app/sport-icons.js", root).href));
   const compiled = ts.transpileModule(source + "\nexport { SchoolLogin, PageHeaderEditor, ApplicationIntro };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
@@ -118,6 +119,7 @@ test("renders saved main-page branding safely with a linked year badge and match
   assert.doesNotMatch(preview, /<h1\b/);
   assert.match(preview, /type="file"[^>]*accept="image\/png,image\/jpeg,image\/webp"/);
   assert.match(preview, /로고 이미지 저장/);
+  assert.match(preview, /최대 10MB/);
   assert.doesNotMatch(preview, />이미지 삭제</);
   tournament.logoKey = "aefaf57d-b000-4000-8000-000000000001";
   const imageLogin = renderLogin();
@@ -138,7 +140,7 @@ async function brandingFixture() {
   const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
   let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react")))
     .replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
-  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) {
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons", "logo-png"]) {
     source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
   }
   const compiled = ts.transpileModule(source + "\nexport { Brand, SchoolLogin, AdminLogin, AdminPanel };", {
@@ -485,7 +487,7 @@ test("sport headings occupy the former badge column without moving the participa
 test("new surveys explicitly choose school levels and preserve legacy middle-school defaults", async () => {
   const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
   let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react"))).replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
-  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) {
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons", "logo-png"]) {
     source = source.replace(JSON.stringify("./" + name + ".js"), JSON.stringify(new URL("app/" + name + ".js", root).href));
   }
   const compiled = ts.transpileModule(source + "\nexport { SchoolLogin, NewSurveyForm, SportEditor, AdminPanel };", {
@@ -545,7 +547,7 @@ test("new surveys explicitly choose school levels and preserve legacy middle-sch
 test("teacher survey selection and school-level response tabs preserve context and isolate rows", async () => {
   const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
   let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react"))).replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
-  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons", "logo-png"]) source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
   const compiled = ts.transpileModule(source + "\nexport { SurveyPicker, AdminPanel };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
   const { SurveyPicker, AdminPanel } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
   const render = (component, props) => renderToStaticMarkup(createElement(component, props));
