@@ -67,6 +67,7 @@ export const sports = sqliteTable(
     id: text("id").primaryKey(),
     tournamentId: text("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    iconKey: text("icon_key").notNull().default("auto"),
     displayOrder: integer("display_order").notNull().default(0),
     teamCountEnabled: integer("team_count_enabled", { mode: "boolean" }).notNull().default(false),
     maxTeamsPerSchool: integer("max_teams_per_school").notNull().default(2),

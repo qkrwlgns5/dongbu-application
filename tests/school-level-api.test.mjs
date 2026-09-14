@@ -10,7 +10,7 @@ import { normalizeSchoolPasswordInput } from "../worker/school-password.js";
 const root = new URL("../", import.meta.url);
 let source = await readFile(new URL("worker/api.ts", root), "utf8");
 for (const path of ["school-password", "team-limits", "logo-image"]) source = source.replace(JSON.stringify(`./${path}.js`), JSON.stringify(new URL(`worker/${path}.js`, root).href));
-for (const path of ["event-card-copy", "page-header-copy", "school-levels"]) source = source.replace(JSON.stringify(`../app/${path}.js`), JSON.stringify(new URL(`app/${path}.js`, root).href));
+for (const path of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) source = source.replace(JSON.stringify(`../app/${path}.js`), JSON.stringify(new URL(`app/${path}.js`, root).href));
 const { handleApi } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
 
 class TestD1 {
@@ -101,7 +101,7 @@ test("school-level migrations preserve every preexisting column, credential, res
   } finally { sqlite.close(); }
 });
 
-test("new surveys validate school levels, retain prior survey, initialize matching divisions, and create atomically", async () => {
+test("new surveys validate school levels, retain prior survey, start without sports, and create atomically", async () => {
   const f = await fixture();
   try {
     const active = (await f.call("bootstrap")).data.tournament;
@@ -117,9 +117,8 @@ test("new surveys validate school levels, retain prior survey, initialize matchi
       const data = await f.dashboard(created.data.id);
       assert.deepEqual(JSON.parse(data.selectedEvent.schoolLevels), levels ?? ["middle"]);
       assert.equal(data.selectedEvent.status, "draft");
-      const wanted = levels?.includes("elementary") ? levels.includes("middle") ? ["남초부", "여초부", "남중부", "여중부"] : ["남초부", "여초부"] : ["남중부", "여중부"];
-      assert.equal(data.sports.length, 3);
-      for (const sport of data.sports) assert.deepEqual(sport.divisions.map((division) => division.name), wanted);
+      assert.deepEqual(data.sports, [], "new events must not silently create sports or divisions");
+      assert.equal(f.sqlite.prepare("SELECT COUNT(*) AS n FROM divisions d JOIN sports s ON s.id = d.sport_id WHERE s.tournament_id = ?").get(created.data.id).n, 0);
       assert.deepEqual((await f.call("bootstrap")).data.tournament, active);
     }
     const before = ["tournaments", "sports", "divisions", "admin_audit_logs"].map((name) => f.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get().n);
@@ -139,6 +138,10 @@ test("school lists, sessions, results and participant summaries stay scoped to e
     const middleBefore = await f.login("test-middle", "ehdek99");
     assert.equal(middleBefore.status, 200);
     const created = await f.create(["middle", "elementary"]);
+    assert.equal((await f.call("admin/sports", { method: "POST", cookie: f.cookie, body: {
+      eventId: created.data.id, name: "검증 배구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 1,
+      divisions: [{ name: "남초부", schoolLevel: "elementary" }, { name: "여초부", schoolLevel: "elementary" }, { name: "남중부", schoolLevel: "middle" }, { name: "여중부", schoolLevel: "middle" }],
+    } })).status, 201, "this participant test explicitly adds its sport after creating an empty event");
     await f.activate(created.data.id);
     const both = (await f.call("bootstrap")).data;
     assert.deepEqual(JSON.parse(both.tournament.schoolLevels), ["elementary", "middle"]);

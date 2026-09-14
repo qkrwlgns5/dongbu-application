@@ -83,7 +83,8 @@ test("renders saved main-page branding safely with a linked year badge and match
     .replace('"react"', JSON.stringify(import.meta.resolve("react")))
     .replace('"./event-card-copy.js"', JSON.stringify(new URL("app/event-card-copy.js", root).href))
     .replace('"./page-header-copy.js"', JSON.stringify(new URL("app/page-header-copy.js", root).href))
-    .replace('"./school-levels.js"', JSON.stringify(new URL("app/school-levels.js", root).href));
+    .replace('"./school-levels.js"', JSON.stringify(new URL("app/school-levels.js", root).href))
+    .replace('"./sport-icons.js"', JSON.stringify(new URL("app/sport-icons.js", root).href));
   const compiled = ts.transpileModule(source + "\nexport { SchoolLogin, PageHeaderEditor, ApplicationIntro };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
   const { SchoolLogin, PageHeaderEditor, ApplicationIntro } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
   const tournament = { id: "preview", academicYear: 2027, name: "새 대회", headerCopy: "{}", cardCopy: "{}", surveyStart: "2026-09-13T15:00:00.000Z", surveyEnd: "2026-09-18T08:00:00.000Z", status: "active" };
@@ -137,7 +138,7 @@ async function brandingFixture() {
   const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
   let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react")))
     .replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
-  for (const name of ["event-card-copy", "page-header-copy", "school-levels"]) {
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) {
     source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
   }
   const compiled = ts.transpileModule(source + "\nexport { Brand, SchoolLogin, AdminLogin, AdminPanel };", {
@@ -468,7 +469,11 @@ test("teacher participant viewing is independent of application edits and locks 
 
 test("sport headings occupy the former badge column without moving the participation switch", async () => {
   const [client, css, baseCss] = await Promise.all([readFile(new URL("app/survey-app-client.tsx", root), "utf8"), readFile(new URL("app/redesign.css", root), "utf8"), readFile(new URL("app/globals.css", root), "utf8")]);
-  assert.doesNotMatch(client + css + baseCss, /sport-symbol/);
+  // Decorative pictograms are now supported on administrator banners, while the
+  // teacher form keeps its badge-free two-column heading and participation switch.
+  const teacherHeader = client.match(/<header><div className="sport-name-block">[\s\S]*?<\/header>/)?.[0];
+  assert.ok(teacherHeader);
+  assert.doesNotMatch(teacherHeader, /SportSymbol|sport-symbol|>VB<|>BB<|>DB</);
   assert.match(client, /<header><div className="sport-name-block"><h2 title=\{sport\.name\}>\{sport\.name\}<\/h2><small lang="en">/);
   assert.match(client, /"VOLLEYBALL"/);
   assert.match(client, /"BASKETBALL"/);
@@ -480,7 +485,7 @@ test("sport headings occupy the former badge column without moving the participa
 test("new surveys explicitly choose school levels and preserve legacy middle-school defaults", async () => {
   const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
   let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react"))).replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
-  for (const name of ["event-card-copy", "page-header-copy", "school-levels"]) {
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) {
     source = source.replace(JSON.stringify("./" + name + ".js"), JSON.stringify(new URL("app/" + name + ".js", root).href));
   }
   const compiled = ts.transpileModule(source + "\nexport { SchoolLogin, NewSurveyForm, SportEditor, AdminPanel };", {
@@ -540,7 +545,7 @@ test("new surveys explicitly choose school levels and preserve legacy middle-sch
 test("teacher survey selection and school-level response tabs preserve context and isolate rows", async () => {
   const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
   let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react"))).replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
-  for (const name of ["event-card-copy", "page-header-copy", "school-levels"]) source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
   const compiled = ts.transpileModule(source + "\nexport { SurveyPicker, AdminPanel };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
   const { SurveyPicker, AdminPanel } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
   const render = (component, props) => renderToStaticMarkup(createElement(component, props));

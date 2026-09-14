@@ -71,6 +71,13 @@
       "when": 1789380656124,
       "tag": "0012_school_institution_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1789382423761,
+      "tag": "0013_sport_icons",
+      "breakpoints": true
     }
   ]
 }

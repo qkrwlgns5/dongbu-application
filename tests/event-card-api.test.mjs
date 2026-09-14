@@ -17,6 +17,7 @@ const source = (await readFile(sourceUrl, "utf8"))
   .replace('"./logo-image.js"', JSON.stringify(new URL("../worker/logo-image.js", import.meta.url).href))
   .replace('"../app/event-card-copy.js"', JSON.stringify(new URL("../app/event-card-copy.js", import.meta.url).href))
   .replace('"../app/school-levels.js"', JSON.stringify(new URL("../app/school-levels.js", import.meta.url).href))
+  .replace('"../app/sport-icons.js"', JSON.stringify(new URL("../app/sport-icons.js", import.meta.url).href))
   .replace('"../app/page-header-copy.js"', JSON.stringify(new URL("../app/page-header-copy.js", import.meta.url).href));
 const { handleApi } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
 
@@ -348,6 +349,8 @@ test("teacher participant lists show only saved active entries in the session to
     assert.deepEqual(Object.keys(summary.schools[0]).sort(), ["isOwnSchool", "schoolId", "schoolName", "schoolLevel", "selections", "teamCount"].sort());
     assert.doesNotMatch(JSON.stringify(listed), /password|salt|pepper|revision|updatedAt|adminUsername|authVersion/i);
     const second = await call("admin/events", { method: "POST", cookie, body: { academicYear: 2027, name: "다른 대회", surveyStart: start, surveyEnd: end } });
+    // New events start empty. Explicitly configure the independent participant fixture through the admin API.
+    assert.equal((await call("admin/sports", { method: "POST", cookie, body: { eventId: second.data.id, name: "3x3 농구", divisions: [{ name: "남중부", schoolLevel: "middle" }, { name: "여중부", schoolLevel: "middle" }], maxTeamsPerSchool: 2, maxTeamsPerDivision: 1 } })).status, 201);
     const otherDivision = sqlite.prepare("SELECT d.id FROM divisions d JOIN sports s ON s.id = d.sport_id WHERE s.tournament_id = ? AND s.name = '3x3 농구' ORDER BY d.display_order LIMIT 1").get(second.data.id).id;
     // Seed a past saved response while the fixture survey is accepting entries,
     // then make it private to exercise participant isolation from a draft survey.

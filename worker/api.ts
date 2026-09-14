@@ -3,7 +3,8 @@ import { validateTeamLimitConfiguration, validateTeamSelection } from "./team-li
 import { normalizeEventCardCopy } from "../app/event-card-copy.js";
 import { normalizePageHeaderCopy } from "../app/page-header-copy.js";
 import { MAX_LOGO_BYTES, validateLogoPng, logoObjectKey } from "./logo-image.js";
-import { SCHOOL_LEVELS, schoolLevels, validateSchoolLevels } from "../app/school-levels.js";
+import { schoolLevels, validateSchoolLevels } from "../app/school-levels.js";
+import { normalizeSportIconKey } from "../app/sport-icons.js";
 
 type SchoolLevel = "elementary" | "middle";
 
@@ -58,6 +59,7 @@ interface SchoolCredentialSnapshot {
 interface SportRow {
   id: string;
   name: string;
+  iconKey: string;
   displayOrder: number;
   teamCountEnabled: number;
   maxTeamsPerSchool: number;
@@ -303,7 +305,7 @@ function assertExpectedSchool(request: Request, schoolId: string, bodyId?: unkno
 
 async function sportsForTournament(db: D1Database, tournamentId: string, activeOnly = true, schoolLevel?: SchoolLevel) {
   const sportsResult = await db.prepare(
-    `SELECT id, name, display_order AS displayOrder,
+    `SELECT id, name, icon_key AS iconKey, display_order AS displayOrder,
        team_count_enabled AS teamCountEnabled,
        max_teams_per_school AS maxTeamsPerSchool,
        max_teams_per_division AS maxTeamsPerDivision, active
@@ -321,6 +323,7 @@ async function sportsForTournament(db: D1Database, tournamentId: string, activeO
   return sportsResult.results.map((sport) => ({
     id: sport.id,
     name: sport.name,
+    iconKey: sport.iconKey,
     displayOrder: Number(sport.displayOrder),
     teamCountEnabled: Boolean(sport.teamCountEnabled),
     maxTeamsPerSchool: Number(sport.maxTeamsPerSchool),
@@ -598,7 +601,7 @@ async function schoolParticipants(request: Request, env: Env): Promise<Response>
         };
       });
       return {
-        id: sport.id, name: sport.name, schools, schoolCount: schools.length,
+        id: sport.id, name: sport.name, iconKey: sport.iconKey, schools, schoolCount: schools.length,
         teamCount: schools.reduce((sum, row) => sum + row.teamCount, 0),
         divisions: sport.divisions.map((division) => {
           const selected = rows.filter((row) => row.divisionId === division.id);
@@ -1124,39 +1127,6 @@ function eventSchoolLevels(value: unknown): SchoolLevel[] {
   catch (error) { throw apiError(error instanceof Error ? error.message : "참가 대상 학교급을 확인해 주세요.", 400, "INVALID_SCHOOL_LEVELS"); }
 }
 
-function defaultSportsStatements(db: D1Database, tournamentId: string, levels: SchoolLevel[]): D1PreparedStatement[] {
-  const definitions = [
-    { name: "배구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 2 },
-    { name: "3x3 농구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 1 },
-    { name: "피구", maxTeamsPerSchool: 2, maxTeamsPerDivision: 1 },
-  ];
-  const statements: D1PreparedStatement[] = [];
-  definitions.forEach((definition, index) => {
-    const sportId = crypto.randomUUID();
-    statements.push(db.prepare(
-      `INSERT INTO sports
-         (id, tournament_id, name, display_order, team_count_enabled, max_teams_per_school, max_teams_per_division)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      sportId,
-      tournamentId,
-      definition.name,
-      index + 1,
-      definition.maxTeamsPerDivision >= 2 ? 1 : 0,
-      definition.maxTeamsPerSchool,
-      definition.maxTeamsPerDivision,
-    ));
-    const defaults = SCHOOL_LEVELS.filter((level) => levels.includes(level.value as SchoolLevel))
-      .flatMap((level) => [level.maleDivision, level.femaleDivision].map((name) => ({ name, schoolLevel: level.value })));
-    defaults.forEach((division, divisionIndex) => {
-      statements.push(db.prepare(
-        "INSERT INTO divisions (id, sport_id, name, school_level, display_order) VALUES (?, ?, ?, ?, ?)",
-      ).bind(crypto.randomUUID(), sportId, division.name, division.schoolLevel, divisionIndex + 1));
-    });
-  });
-  return statements;
-}
-
 async function createEvent(request: Request, env: Env): Promise<Response> {
   await requireSession(request, env.DB, "admin");
   const body = await readJson<{ academicYear?: number; name?: string; surveyStart?: string; surveyEnd?: string; schoolLevels?: unknown }>(request);
@@ -1167,7 +1137,6 @@ async function createEvent(request: Request, env: Env): Promise<Response> {
     env.DB.prepare(
       "INSERT INTO tournaments (id, academic_year, name, survey_start, survey_end, school_levels, status) VALUES (?, ?, ?, ?, ?, ?, 'draft')",
     ).bind(id, payload.academicYear, payload.name, payload.surveyStart, payload.surveyEnd, JSON.stringify(levels)),
-    ...defaultSportsStatements(env.DB, id, levels),
     auditStatement(env.DB, "CREATE", "tournament", id, { ...payload, schoolLevels: levels }),
   ]);
   return json({ ok: true, id }, 201);
@@ -1325,11 +1294,17 @@ function divisionSchoolLevel(value: unknown, tournament: TournamentRow, existing
   return selected;
 }
 
+function sportIconKey(value: unknown, fallback = "auto"): string {
+  try { return normalizeSportIconKey(value, fallback); }
+  catch (error) { throw apiError(error instanceof Error ? error.message : "종목 그림을 다시 선택해 주세요.", 400, "INVALID_SPORT_ICON"); }
+}
+
 async function addSport(request: Request, env: Env): Promise<Response> {
   await requireSession(request, env.DB, "admin");
   const body = await readJson<{
     eventId?: string;
     name?: string;
+    iconKey?: unknown;
     divisions?: Array<string | { name?: string; schoolLevel?: unknown }>;
     maxTeamsPerSchool?: number;
     maxTeamsPerDivision?: number;
@@ -1338,6 +1313,7 @@ async function addSport(request: Request, env: Env): Promise<Response> {
   const tournament = await tournamentById(env.DB, eventId);
   if (!tournament) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
   const name = cleanText(body.name, "종목명", 40);
+  const iconKey = sportIconKey(body.iconKey);
   if (!Array.isArray(body.divisions) || !body.divisions.length || body.divisions.length > 8) throw apiError("종별을 1개 이상 8개 이하로 입력해 주세요.");
   const requestedDivisions = body.divisions.map((division) => ({
     name: cleanText(typeof division === "string" ? division : division?.name, "종별명", 30),
@@ -1357,12 +1333,13 @@ async function addSport(request: Request, env: Env): Promise<Response> {
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO sports
-         (id, tournament_id, name, display_order, team_count_enabled, max_teams_per_school, max_teams_per_division)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (id, tournament_id, name, icon_key, display_order, team_count_enabled, max_teams_per_school, max_teams_per_division)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       sportId,
       eventId,
       name,
+      iconKey,
       Number(maxOrder?.value ?? 0) + 1,
       teamCountEnabled ? 1 : 0,
       maxTeamsPerSchool,
@@ -1375,6 +1352,7 @@ async function addSport(request: Request, env: Env): Promise<Response> {
   await audit(env.DB, "CREATE", "sport", sportId, {
     eventId,
     name,
+    iconKey,
     divisions: requestedDivisions,
     maxTeamsPerSchool,
     maxTeamsPerDivision,
@@ -1415,7 +1393,7 @@ async function toggleSport(request: Request, env: Env, sportId: string): Promise
 async function updateSport(request: Request, env: Env, sportId: string): Promise<Response> {
   await requireSession(request, env.DB, "admin");
   const sport = await env.DB.prepare(
-    `SELECT id, tournament_id AS tournamentId, name, display_order AS displayOrder,
+    `SELECT id, tournament_id AS tournamentId, name, icon_key AS iconKey, display_order AS displayOrder,
        team_count_enabled AS teamCountEnabled,
        max_teams_per_school AS maxTeamsPerSchool,
        max_teams_per_division AS maxTeamsPerDivision, active
@@ -1427,11 +1405,13 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
   if (!tournament) throw apiError("대회를 찾을 수 없습니다.", 404, "NOT_FOUND");
   const body = await readJson<{
     name?: string;
+    iconKey?: unknown;
     divisions?: Array<{ id?: string; name?: string; schoolLevel?: unknown }>;
     maxTeamsPerSchool?: number;
     maxTeamsPerDivision?: number;
   }>(request);
   const name = cleanText(body.name, "종목명", 40);
+  const iconKey = sportIconKey(body.iconKey, sport.iconKey);
   const limitConfiguration = validateTeamLimitConfiguration(
     body.maxTeamsPerSchool ?? sport.maxTeamsPerSchool,
     body.maxTeamsPerDivision ?? sport.maxTeamsPerDivision,
@@ -1542,9 +1522,9 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
 
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `UPDATE sports SET name = ?, team_count_enabled = ?, max_teams_per_school = ?, max_teams_per_division = ?,
+      `UPDATE sports SET name = ?, icon_key = ?, team_count_enabled = ?, max_teams_per_school = ?, max_teams_per_division = ?,
          updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-    ).bind(name, teamCountEnabled ? 1 : 0, maxTeamsPerSchool, maxTeamsPerDivision, sportId),
+    ).bind(name, iconKey, teamCountEnabled ? 1 : 0, maxTeamsPerSchool, maxTeamsPerDivision, sportId),
   ];
   normalizedDivisions.forEach((division, index) => {
     if (division.id) {
@@ -1569,12 +1549,13 @@ async function updateSport(request: Request, env: Env, sportId: string): Promise
   statements.push(auditStatement(env.DB, "UPDATE", "sport", sportId, {
     before: {
       name: sport.name,
+      iconKey: sport.iconKey,
       teamCountEnabled: Boolean(sport.teamCountEnabled),
       maxTeamsPerSchool: Number(sport.maxTeamsPerSchool),
       maxTeamsPerDivision: Number(sport.maxTeamsPerDivision),
       divisions: existingDivisions.map((division) => ({ id: division.id, name: division.name, schoolLevel: division.schoolLevel })),
     },
-    after: { name, teamCountEnabled, maxTeamsPerSchool, maxTeamsPerDivision, divisions: normalizedDivisions },
+    after: { name, iconKey, teamCountEnabled, maxTeamsPerSchool, maxTeamsPerDivision, divisions: normalizedDivisions },
   }));
   try {
     await env.DB.batch(statements);

@@ -10,7 +10,7 @@ import { normalizeSchoolPasswordInput } from "../worker/school-password.js";
 const root = new URL("../", import.meta.url);
 let source = await readFile(new URL("worker/api.ts", root), "utf8");
 for (const path of ["school-password", "team-limits", "logo-image"]) source = source.replace(JSON.stringify(`./${path}.js`), JSON.stringify(new URL(`worker/${path}.js`, root).href));
-for (const path of ["event-card-copy", "page-header-copy", "school-levels"]) source = source.replace(JSON.stringify(`../app/${path}.js`), JSON.stringify(new URL(`app/${path}.js`, root).href));
+for (const path of ["event-card-copy", "page-header-copy", "school-levels", "sport-icons"]) source = source.replace(JSON.stringify(`../app/${path}.js`), JSON.stringify(new URL(`app/${path}.js`, root).href));
 const { handleApi } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
 
 class TestD1 {

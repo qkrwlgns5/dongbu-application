@@ -76,6 +76,7 @@ test("application feature migrations preserve the entire 0000–0008 schema data
     assert.deepEqual(newMigrations, [
       "0009_school_level_applications.sql", "0010_elementary_schools.sql",
       "0011_school_management.sql", "0012_school_institution_codes.sql",
+      "0013_sport_icons.sql",
     ]);
     await apply(sqlite, newMigrations);
 
@@ -95,6 +96,7 @@ test("application feature migrations preserve the entire 0000–0008 schema data
     assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM schools WHERE school_level = 'elementary'").get().n, 73);
     assert.equal(sqlite.prepare("SELECT school_levels FROM tournaments WHERE id = ?").get(legacyEventId).school_levels, '["middle"]');
     assert.deepEqual(plainRows(sqlite.prepare("SELECT DISTINCT school_level FROM divisions")), [{ school_level: "middle" }]);
+    assert.deepEqual(plainRows(sqlite.prepare("SELECT DISTINCT icon_key FROM sports")), [{ icon_key: "auto" }]);
     assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM responses").get().n, 2);
     assert.equal(sqlite.prepare("SELECT SUM(team_count) AS n FROM response_items").get().n, 2);
     assert.deepEqual(plainRows(sqlite.prepare("PRAGMA foreign_key_check")), []);

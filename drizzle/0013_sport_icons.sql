@@ -1,0 +1,1 @@
+ALTER TABLE `sports` ADD `icon_key` text DEFAULT 'auto' NOT NULL;

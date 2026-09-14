@@ -296,3 +296,55 @@ button, input, select, textarea, b, strong { font-weight: 800; }
   word-break: keep-all;
   overflow-wrap: break-word;
 }
+/* Shared, local SVG sports illustrations with keyboard-accessible selection. */
+.sports-management, .sports-management > .settings-card, .sports-management .managed-sports, .sports-management .managed-sport-card { min-width: 0; }
+.sports-management .sport-editor { min-width: 0; max-width: 100%; grid-template-columns: minmax(0, 1fr); }
+.sports-management .sport-editor > *, .sports-management .team-limit-field-grid > label, .sports-management .team-limit-field-grid input { min-width: 0; }
+.sports-management .sport-divisions { min-inline-size: 0; }
+.sport-editor-grid { grid-template-columns: minmax(0, 1fr); }
+.sport-editor-grid > label { min-width: 0; }
+.sport-editor-grid > label > input { width: 100%; min-width: 0; }
+.sport-symbol { flex: 0 0 auto; width: 40px; height: 40px; display: inline-grid; place-items: center; border: 1px solid #d8e9e3; border-radius: 11px; background: #f0f8f3; }
+.sport-symbol img { display: block; width: 34px; height: 34px; object-fit: contain; }
+.managed-sport-summary { grid-template-columns: 40px minmax(0, 1fr) auto; }
+.managed-sport-icon, .managed-sport-card.inactive .managed-sport-icon { width: 40px; height: 40px; background: #f0f8f3; }
+.managed-sport-card.inactive .managed-sport-icon { opacity: .65; }
+.sport-metric-identity { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.sport-metric-identity .sport-symbol { width: 36px; height: 36px; border-radius: 9px; }
+.sport-metric-identity .sport-symbol img { width: 30px; height: 30px; }
+.sport-icon-picker { min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: #f8fbfa; }
+.sport-icon-picker legend { padding: 0 5px; color: var(--ink); font-size: 14px; }
+.sport-icon-picker legend small { margin-left: 5px; color: var(--muted); }
+.sport-icon-preview { min-width: 0; display: flex; align-items: center; gap: 11px; }
+.sport-icon-preview > div { min-width: 0; display: grid; gap: 5px; }
+.sport-icon-preview b { color: var(--ink); font-size: 14px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+.sport-icon-preview small, .sport-icon-picker > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.sport-icon-picker > p { margin-top: 11px; }
+.sport-icon-picker details { margin-top: 12px; }
+.sport-icon-picker summary { min-height: 44px; padding: 12px; border: 1px solid #c4dbd2; border-radius: 8px; background: white; color: #176e5f; font-size: 13px; line-height: 1.6; cursor: pointer; word-break: keep-all; overflow-wrap: anywhere; }
+.sport-icon-picker summary > span { margin-left: 5px; color: var(--muted); font-size: 12px; }
+.sport-icon-picker summary:focus-visible { outline: 3px solid #258574; outline-offset: 3px; }
+.sport-icon-options { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(84px, 100%), 1fr)); gap: 8px; padding-top: 10px; }
+.settings-card form .sport-icon-option { position: relative; min-width: 0; display: block; margin: 0; cursor: pointer; }
+.settings-card form .sport-icon-option input { position: absolute; inset: 7px auto auto 7px; z-index: 1; width: 14px; height: 14px; min-height: 14px; margin: 0; padding: 0; accent-color: #176e5f; }
+.settings-card form .sport-icon-choice-body { min-width: 0; height: 100%; min-height: 116px; padding: 21px 5px 9px; display: flex; flex-flow: column nowrap; justify-content: center; align-items: center; gap: 6px; border: 1px solid #d7e4df; border-radius: 9px; background: white; text-align: center; }
+.sport-icon-choice-body img { display: block; width: 36px; height: 36px; object-fit: contain; }
+.sport-icon-choice-body b { max-width: 100%; font-size: 12px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+.settings-card form .sport-icon-choice-body small { font-size: 11px; line-height: 1.4; color: var(--muted); }
+.settings-card form .sport-icon-option.selected .sport-icon-choice-body { border-color: #258574; background: #eaf5ef; box-shadow: inset 0 0 0 1px #258574; }
+.sport-icon-option.selected .sport-icon-choice-body small { color: #176e5f; }
+.sport-icon-option input:focus-visible + .sport-icon-choice-body { outline: 3px solid #258574; outline-offset: 3px; }
+.sport-icon-picker:disabled .sport-icon-option { cursor: wait; opacity: .65; }
+.sports-empty-state { display: grid; justify-items: center; gap: 12px; padding: 28px 18px; border: 1px dashed #c4dbd2; border-radius: 11px; background: #f8fbfa; text-align: center; }
+.sports-empty-state h3 { margin: 0; color: var(--ink); font-size: 17px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; }
+.sports-empty-state p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.8; word-break: keep-all; overflow-wrap: anywhere; }
+.sports-empty-state a { max-width: 100%; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; white-space: normal; }
+#new-sport-editor { scroll-margin-top: 24px; }
+@media (max-width: 600px) {
+  .managed-sport-summary { grid-template-columns: 40px minmax(0, 1fr); }
+  .managed-sport-actions { grid-column: 1 / -1; }
+  .sport-icon-picker { padding: 12px; }
+}
+@media (max-width: 1100px) {
+  .admin-settings-grid.sports-management { grid-template-columns: minmax(0, 1fr); }
+}
