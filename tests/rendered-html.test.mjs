@@ -133,6 +133,124 @@ test("renders saved main-page branding safely with a linked year badge and match
   assert.doesNotMatch(hidden, /intro-title-secondary|class="eyebrow"/);
 });
 
+async function brandingFixture() {
+  const original = await readFile(new URL("app/survey-app-client.tsx", root), "utf8");
+  let source = original.replace('"react"', JSON.stringify(import.meta.resolve("react")))
+    .replace('"./admin-school-management"', JSON.stringify(schoolManagementUrl));
+  for (const name of ["event-card-copy", "page-header-copy", "school-levels"]) {
+    source = source.replace(JSON.stringify(`./${name}.js`), JSON.stringify(new URL(`app/${name}.js`, root).href));
+  }
+  const compiled = ts.transpileModule(source + "\nexport { Brand, SchoolLogin, AdminLogin, AdminPanel };", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText.replace('"react/jsx-runtime"', JSON.stringify(import.meta.resolve("react/jsx-runtime")));
+  const components = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const tournament = {
+    id: "brand event/one", academicYear: 2027, name: "첫 번째 브랜드 대회", status: "active",
+    surveyStart: "2027-01-01T00:00:00.000Z", surveyEnd: "2027-01-15T09:00:00.000Z",
+    cardCopy: "{}", schoolLevels: '["middle"]', logoKey: "aefaf57d-b000-4000-8000-000000000001",
+    headerCopy: JSON.stringify({ logoText: "DB", brandName: "새 기관명", brandSubtitle: "함께 뛰는 학교" }),
+  };
+  const renderComponent = (component, props) => renderToStaticMarkup(createElement(component, props));
+  const brand = (html) => {
+    const result = html.match(/<a\b[^>]*class="brand"[^>]*>[\s\S]*?<\/a>/)?.[0];
+    assert.ok(result, "the rendered view contains a linked brand");
+    return result;
+  };
+  return { ...components, original, tournament, renderComponent, brand };
+}
+
+test("administrator and teacher brands share the saved image, institution name, and subtitle with only navigation differing", async () => {
+  const { Brand, tournament, renderComponent, brand } = await brandingFixture();
+  const teacher = brand(renderComponent(Brand, { tournament }));
+  const admin = brand(renderComponent(Brand, { tournament, admin: true }));
+  const imagePath = "/api/events/brand%20event%2Fone/logo/aefaf57d-b000-4000-8000-000000000001";
+  for (const html of [teacher, admin]) {
+    assert.ok(html.includes(`src="${imagePath}"`), "the exact event-scoped saved image is displayed");
+    assert.match(html, /<img[^>]*class="brand-image"/);
+    assert.match(html, /새 기관명/);
+    assert.match(html, /함께 뛰는 학교/);
+    assert.doesNotMatch(html, /brand-mark|수요조사 관리|참가 신청 관리/);
+  }
+  assert.match(teacher, /href="\/"/);
+  assert.match(admin, /href="\/admin"/);
+  assert.equal(admin.replace('href="/admin"', 'href="/"'), teacher);
+});
+
+test("administrator branding preserves letter fallbacks, hidden subtitles, and escaped custom text", async () => {
+  const { Brand, tournament, renderComponent, brand } = await brandingFixture();
+  const hidden = { ...tournament, logoKey: "", headerCopy: JSON.stringify({ logoText: "동부", brandName: "문자 기관", brandSubtitle: "" }) };
+  const teacher = brand(renderComponent(Brand, { tournament: hidden }));
+  const admin = brand(renderComponent(Brand, { tournament: hidden, admin: true }));
+  assert.equal(admin.replace('href="/admin"', 'href="/"'), teacher);
+  assert.match(admin, /class="brand-mark"[^>]*data-length="2"[^>]*>동부<\/span>/);
+  assert.doesNotMatch(admin, /<img\b|<b\b|수요조사 관리|참가 신청 관리/);
+  const forcedFallback = brand(renderComponent(Brand, { tournament, admin: true, imageUrl: null }));
+  assert.match(forcedFallback, /data-length="2"[^>]*>DB<\/span>/);
+  assert.doesNotMatch(forcedFallback, /<img\b/);
+  const malicious = { ...hidden, headerCopy: JSON.stringify({ logoText: "DB", brandName: '<script>alert("brand")</script>', brandSubtitle: '<img src=x onerror=alert(1)> & subtitle' }) };
+  for (const adminMode of [false, true]) {
+    const safe = brand(renderComponent(Brand, { tournament: malicious, admin: adminMode }));
+    assert.match(safe, /&lt;script&gt;alert\(&quot;brand&quot;\)&lt;\/script&gt;/);
+    assert.match(safe, /&lt;img src=x onerror=alert\(1\)&gt; &amp; subtitle/);
+    assert.doesNotMatch(safe, /<(?:script|img)\b/);
+  }
+  const defaultTeacher = brand(renderComponent(Brand, { tournament: null }));
+  const defaultAdmin = brand(renderComponent(Brand, { tournament: null, admin: true }));
+  assert.equal(defaultAdmin.replace('href="/admin"', 'href="/"'), defaultTeacher);
+  assert.match(defaultAdmin, /data-length="1"[^>]*>D<\/span>/);
+  assert.match(defaultAdmin, /동부교육지원청/);
+  assert.match(defaultAdmin, /학교스포츠클럽/);
+});
+
+test("administrator login and selected dashboard branding track public, switched, and refreshed tournament settings", async () => {
+  const { Brand, SchoolLogin, AdminLogin, AdminPanel, original, tournament, renderComponent, brand } = await brandingFixture();
+  const second = { ...tournament, id: "brand-two", name: "두 번째 브랜드 대회", logoKey: "", headerCopy: JSON.stringify({ logoText: "둘", brandName: "두 번째 기관", brandSubtitle: "두 번째 안내" }) };
+  const dashboard = { adminUsername: "branding-test-admin", selectedEvent: tournament, events: [tournament, second], sports: [], rows: [] };
+  const renderPanel = (selectedEvent) => renderComponent(AdminPanel, { dashboard: { ...dashboard, selectedEvent }, async refresh() {} });
+  const bootstrap = { tournament, tournaments: [tournament], schools: [], sports: [], surveyState: { open: true, code: "OPEN", message: "" } };
+  const schoolLogin = renderComponent(SchoolLogin, { bootstrap, onLogin() {} });
+  const adminLogin = renderComponent(AdminLogin, { tournament, async onLogin() {} });
+  const firstAdmin = brand(renderPanel(tournament));
+  assert.equal(brand(adminLogin), firstAdmin);
+  assert.equal(firstAdmin.replace('href="/admin"', 'href="/"'), brand(schoolLogin));
+  assert.match(adminLogin, /관리자 로그인/);
+  assert.match(adminLogin, /<input(?=[^>]*name="username")(?=[^>]*autoComplete="username")[^>]*>/);
+  assert.match(adminLogin, /<input(?=[^>]*name="password")(?=[^>]*type="password")(?=[^>]*autoComplete="current-password")[^>]*>/);
+  assert.match(adminLogin, /모든 관리 기능은 서버에서 권한을 다시 확인합니다/);
+  const secondAdmin = brand(renderPanel(second));
+  assert.equal(secondAdmin, brand(renderComponent(Brand, { tournament: second, admin: true })));
+  assert.match(secondAdmin, /두 번째 기관/);
+  assert.match(secondAdmin, /두 번째 안내/);
+  assert.match(secondAdmin, /data-length="1"[^>]*>둘<\/span>/);
+  assert.doesNotMatch(secondAdmin, /새 기관명|함께 뛰는 학교|brand-image/);
+  const refreshed = { ...tournament, logoKey: "aefaf57d-b000-4000-8000-000000000002", headerCopy: JSON.stringify({ logoText: "DB", brandName: "저장 후 기관", brandSubtitle: "" }) };
+  const refreshedAdmin = brand(renderPanel(refreshed));
+  assert.equal(refreshedAdmin, brand(renderComponent(Brand, { tournament: refreshed, admin: true })));
+  assert.match(refreshedAdmin, /저장 후 기관/);
+  assert.match(refreshedAdmin, /logo\/aefaf57d-b000-4000-8000-000000000002/);
+  assert.doesNotMatch(refreshedAdmin, /000000000001|새 기관명|함께 뛰는 학교|<b\b/);
+  const fallback = brand(renderComponent(Brand, { tournament: null, admin: true }));
+  assert.equal(brand(renderPanel(null)), fallback);
+  assert.equal(brand(renderComponent(AdminLogin, { tournament: null, async onLogin() {} })), fallback);
+
+  // Rendering checks props; these source guards also ensure the live parent
+  // forwards fetched data and save handlers request fresh selected-event data.
+  assert.match(original, /<AdminLogin\b[^>]*tournament=\{bootstrap\.tournament\}/);
+  const loginSource = original.slice(original.indexOf("function AdminLogin("), original.indexOf("function AdminAccountSettings("));
+  assert.match(loginSource, /<Brand\b[^>]*admin\b[^>]*tournament=\{tournament\}/);
+  const panelSource = original.slice(original.indexOf("function AdminPanel("));
+  assert.match(panelSource, /const selected = dashboard\.selectedEvent/);
+  assert.match(panelSource, /<Brand\b[^>]*admin\b[^>]*tournament=\{selected\}/);
+  const refreshSource = original.slice(original.indexOf("async function refreshDashboard("), original.indexOf("async function chooseTournament("));
+  assert.match(refreshSource, /admin\/dashboard\$\{query\}/);
+  assert.match(refreshSource, /setDashboard\(next\)/);
+  assert.match(refreshSource, /setBootstrap\(boot\)/);
+  const headerSaveSource = panelSource.slice(panelSource.indexOf("async function saveHeaderCopy("), panelSource.indexOf("async function saveLogoImage("));
+  const logoSaveSource = panelSource.slice(panelSource.indexOf("async function saveLogoImage("), panelSource.indexOf("async function saveCardCopy("));
+  assert.match(headerSaveSource, /await refresh\(selected\.id\)/);
+  assert.match(logoSaveSource, /await refresh\(selected\.id\)/);
+});
+
 test("provides protected sport editing and deletion controls", async () => {
   const [client, api] = await Promise.all([
     readFile(new URL("app/survey-app-client.tsx", root), "utf8"),

@@ -197,7 +197,7 @@ function Brand({ admin = false, tournament, copy, preview = false, imageUrl }: {
       {src && src !== failedSrc
         ? <img className="brand-image" src={src} alt="" width={48} height={48} onError={() => setFailedSrc(src)} />
         : <span className="brand-mark" data-length={[...content.logoText.normalize("NFC")].length} aria-hidden="true">{content.logoText}</span>}
-      <span><SentenceFlow text={content.brandName} />{(admin || content.brandSubtitle) && <b><SentenceFlow text={admin ? "참가 신청 관리" : content.brandSubtitle} /></b>}</span>
+      <span><SentenceFlow text={content.brandName} />{content.brandSubtitle && <b><SentenceFlow text={content.brandSubtitle} /></b>}</span>
     </Container>
   );
 }
@@ -326,7 +326,7 @@ export function SurveyApp({ initialView = "school" }: { initialView?: "school" |
   if (phase === "loading" || !bootstrap) return <PageLoader />;
   if (phase === "login") return <SchoolLogin key={bootstrap.tournament?.id ?? "none"} bootstrap={bootstrap} switchingSurvey={switchingSurvey} choiceError={surveyChoiceError} onChooseTournament={chooseTournament} onLogin={(session) => { window.history.replaceState(null, "", `/?tournamentId=${encodeURIComponent(session.tournament.id)}`); setSchoolSession(session); setPhase("survey"); }} />;
   if (phase === "survey" && schoolSession) return <SurveyForm key={`${schoolSession.tournament.id}-${schoolSession.school.id}`} session={schoolSession} />;
-  if (phase === "admin-login") return <AdminLogin onLogin={async () => { await refreshDashboard(); setPhase("admin"); }} />;
+  if (phase === "admin-login") return <AdminLogin tournament={bootstrap.tournament} onLogin={async () => { await refreshDashboard(); setPhase("admin"); }} />;
   if (phase === "admin" && dashboard) return <AdminPanel dashboard={dashboard} refresh={refreshDashboard} />;
   return <PageLoader />;
 }
@@ -765,7 +765,7 @@ function PageHeaderEditor({ tournament, busy, onSave, onSaveLogo }: { tournament
   const [copy, setCopy] = useState<Record<string, string>>(() => pageHeaderCopy(tournament));
   return <article className="settings-card page-header-editor">
     <header><span>03</span><div><p>LOGIN PAGE HEADER</p><h2>메인페이지 상단 로고·제목</h2></div></header>
-    <p><SentenceFlow text="메인페이지 맨 위의 로고와 기관명, 학년도 배지 옆 문구, 두 줄 제목을 수정합니다. 선택한 대회에만 저장됩니다." /></p>
+    <p><SentenceFlow text="메인페이지 맨 위의 로고와 기관명, 학년도 배지 옆 문구, 두 줄 제목을 수정합니다. 선택한 대회에만 저장됩니다. 로고·기관명·기관명 아래 문구는 관리자 화면과 교사 화면에 공통으로 반영됩니다." /></p>
     <LogoImageEditor key={tournament.id} tournament={tournament} busy={busy} onSave={onSaveLogo} />
     <form onSubmit={(event) => { event.preventDefault(); void onSave(copy); }} aria-busy={busy}>
       <div className="card-editor-fields">{PAGE_HEADER_FIELDS.map((field) => <label key={field.key}>
@@ -786,7 +786,7 @@ function PageHeaderEditor({ tournament, busy, onSave, onSaveLogo }: { tournament
   </article>;
 }
 
-function AdminLogin({ onLogin }: { onLogin: () => Promise<void> }) {
+function AdminLogin({ tournament, onLogin }: { tournament: Tournament | null; onLogin: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -811,7 +811,7 @@ function AdminLogin({ onLogin }: { onLogin: () => Promise<void> }) {
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "로그인하지 못했습니다."); }
     finally { setBusy(false); }
   }
-  return <main className="site-shell admin-login-shell"><header className="brand-bar"><Brand admin /><a className="admin-link" href="/">교사용 페이지</a></header><section className="admin-login-stage"><div><p className="eyebrow"><span /> ADMINISTRATION</p><h1 className="admin-login-title"><span>참가 신청을</span><span>한눈에 관리하세요.</span></h1><p className="admin-login-copy">대회·신청 기간·대상 학교·종목을 설정하고 학교별 신청 현황을 실시간으로 확인합니다.</p></div><section className="login-card admin-login-card"><div className="card-accent" /><div className="card-heading"><span className="step-badge">A</span><div><p>SECURE ACCESS</p><h2>관리자 로그인</h2></div></div>{notice && <p className="login-status" role="status">✓ <SentenceFlow text={notice} /></p>}<form className="login-form" onSubmit={submit}><label><span>관리자 아이디</span><input name="username" autoComplete="username" required /></label><label><span>비밀번호</span><input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert"><SentenceFlow text={error} /></p>}<button className="primary-action" disabled={busy}>{busy ? "확인 중…" : "관리자 화면 열기"}<span>→</span></button></form><div className="security-note"><span>✓</span><p><b>관리자 전용</b><small>모든 관리 기능은 서버에서 권한을 다시 확인합니다.</small></p></div></section></section></main>;
+  return <main className="site-shell admin-login-shell"><header className="brand-bar"><Brand admin tournament={tournament} /><a className="admin-link" href="/">교사용 페이지</a></header><section className="admin-login-stage"><div><p className="eyebrow"><span /> ADMINISTRATION</p><h1 className="admin-login-title"><span>참가 신청을</span><span>한눈에 관리하세요.</span></h1><p className="admin-login-copy">대회·신청 기간·대상 학교·종목을 설정하고 학교별 신청 현황을 실시간으로 확인합니다.</p></div><section className="login-card admin-login-card"><div className="card-accent" /><div className="card-heading"><span className="step-badge">A</span><div><p>SECURE ACCESS</p><h2>관리자 로그인</h2></div></div>{notice && <p className="login-status" role="status">✓ <SentenceFlow text={notice} /></p>}<form className="login-form" onSubmit={submit}><label><span>관리자 아이디</span><input name="username" autoComplete="username" required /></label><label><span>비밀번호</span><input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert"><SentenceFlow text={error} /></p>}<button className="primary-action" disabled={busy}>{busy ? "확인 중…" : "관리자 화면 열기"}<span>→</span></button></form><div className="security-note"><span>✓</span><p><b>관리자 전용</b><small>모든 관리 기능은 서버에서 권한을 다시 확인합니다.</small></p></div></section></section></main>;
 }
 
 function AdminAccountSettings({ currentUsername }: { currentUsername: string }) {
@@ -1190,7 +1190,7 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
     await run(async () => {
       await api(`admin/events/${encodeURIComponent(selected.id)}/header-copy`, { method: "PATCH", body: JSON.stringify({ headerCopy: copy }) });
       await refresh(selected.id);
-    }, "상단 로고·제목을 저장했습니다. 현재 대회인 경우 교사 화면을 새로 열거나 새로고침하면 반영됩니다.");
+    }, "상단 로고·제목을 저장했습니다. 관리자 화면에 반영했으며, 공개된 대회는 교사 화면을 새로고침하면 반영됩니다.");
   }
 
   async function saveLogoImage(image: Blob | null) {
@@ -1252,7 +1252,7 @@ function AdminPanel({ dashboard, refresh }: { dashboard: Dashboard; refresh: (ev
   const newEndDate = selected?.surveyEnd ? new Date(new Date(selected.surveyEnd).getTime() + 14 * 86400000).toISOString() : "2026-09-21T09:00:00.000Z";
 
   return <main className="admin-shell">
-    <aside className="admin-sidebar"><Brand admin /><nav><small>OVERVIEW</small><button type="button" className={tab === "results" ? "active" : ""} aria-current={tab === "results" ? "page" : undefined} onClick={() => setTab("results")}><span>≡</span>결과 종합</button><small>MANAGEMENT</small><button type="button" className={tab === "event" ? "active" : ""} aria-current={tab === "event" ? "page" : undefined} onClick={() => setTab("event")}><span>▣</span>대회·기간 설정</button><button type="button" className={tab === "sports" ? "active" : ""} aria-current={tab === "sports" ? "page" : undefined} onClick={() => setTab("sports")}><span>◉</span>종목 관리</button><button type="button" className={tab === "schools" ? "active" : ""} aria-current={tab === "schools" ? "page" : undefined} onClick={() => setTab("schools")}><span>▤</span>학교 관리</button><button type="button" className={tab === "account" ? "active" : ""} aria-current={tab === "account" ? "page" : undefined} onClick={() => setTab("account")}><span>⚙</span>계정 설정</button></nav><div className="admin-side-foot"><span>{dashboard.adminUsername.slice(0, 1).toUpperCase()}</span><p><b>{dashboard.adminUsername}</b><small>참가 신청 설정·집계</small></p><button type="button" onClick={() => void logoutAdmin()} aria-label="관리자 로그아웃">↗</button></div></aside>
+    <aside className="admin-sidebar"><Brand admin tournament={selected} /><nav><small>OVERVIEW</small><button type="button" className={tab === "results" ? "active" : ""} aria-current={tab === "results" ? "page" : undefined} onClick={() => setTab("results")}><span>≡</span>결과 종합</button><small>MANAGEMENT</small><button type="button" className={tab === "event" ? "active" : ""} aria-current={tab === "event" ? "page" : undefined} onClick={() => setTab("event")}><span>▣</span>대회·기간 설정</button><button type="button" className={tab === "sports" ? "active" : ""} aria-current={tab === "sports" ? "page" : undefined} onClick={() => setTab("sports")}><span>◉</span>종목 관리</button><button type="button" className={tab === "schools" ? "active" : ""} aria-current={tab === "schools" ? "page" : undefined} onClick={() => setTab("schools")}><span>▤</span>학교 관리</button><button type="button" className={tab === "account" ? "active" : ""} aria-current={tab === "account" ? "page" : undefined} onClick={() => setTab("account")}><span>⚙</span>계정 설정</button></nav><div className="admin-side-foot"><span>{dashboard.adminUsername.slice(0, 1).toUpperCase()}</span><p><b>{dashboard.adminUsername}</b><small>참가 신청 설정·집계</small></p><button type="button" onClick={() => void logoutAdmin()} aria-label="관리자 로그아웃">↗</button></div></aside>
     <section className="admin-main">
       <header className="admin-topbar"><div><p>ADMIN CONSOLE</p><h1>{tab === "results" ? "참가 신청 결과 종합" : tab === "event" ? "대회·신청 기간 설정" : tab === "sports" ? "종목 관리" : tab === "schools" ? "학교·기관번호 관리" : "관리자 계정 설정"}</h1></div><div>{tab !== "account" && tab !== "schools" && <label><span>조회 대회</span><select value={selected?.id ?? ""} disabled={busy || exporting !== null} onChange={(event) => { const eventId = event.target.value; setSelectedDivision(null); void run(() => refresh(eventId), ""); }}>{dashboard.events.map((tournament) => <option value={tournament.id} key={tournament.id}>{tournament.academicYear} · {tournament.name}{tournament.status === "active" ? " (공개)" : ""}</option>)}</select></label>}<a href="/" target="_blank" rel="noreferrer">교사 화면 ↗</a><button type="button" className="admin-topbar-logout" onClick={() => void logoutAdmin()}>로그아웃</button></div></header>
       {error && <div className="admin-flash error" role="alert"><SentenceFlow text={error} /></div>}
