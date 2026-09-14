@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? "https://dongbu-application.qkrwlgns5.workers.dev",
   ),
-  title: "동부교육지원청 학교스포츠클럽대회 참가 신청",
+  title: "참가 신청",
   description: "동부학교스포츠클럽대회 참가 종목과 종별을 학교별로 신청하는 페이지입니다.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
   openGraph: {

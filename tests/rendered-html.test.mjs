@@ -35,6 +35,9 @@ test("server-renders the school participation application shell", async () => {
   assert.match(response.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ko"/i);
+  assert.match(html, /<title>참가 신청<\/title>/);
+  assert.match(html, /<main[^>]*class="center-state"[^>]*role="status"[^>]*aria-busy="true"/);
+  assert.doesNotMatch(html, /<(?:a|img)[^>]*class="brand(?:-image)?"/);
   assert.match(html, /동부교육지원청 학교스포츠클럽대회 참가 신청/);
   assert.match(html, new RegExp("/og-application\\.png"));
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
@@ -44,7 +47,9 @@ test("server-renders a no-index administrator route", async () => {
   const response = await render("/admin");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /관리자 · 동부학교스포츠클럽 참가 신청/);
+  assert.match(html, /<title>관리자 · 참가 신청<\/title>/);
+  assert.match(html, /<main[^>]*class="center-state"[^>]*role="status"[^>]*aria-busy="true"/);
+  assert.doesNotMatch(html, /<(?:a|img)[^>]*class="brand(?:-image)?"/);
   assert.match(html, /<meta[^>]+name="robots"[^>]+content="noindex, nofollow"/i);
 });
 

@@ -116,6 +116,7 @@ class ApiRequestError extends Error {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     ...init,
+    cache: "no-store",
     credentials: "same-origin",
     headers: init?.body ? { "Content-Type": "application/json", ...(init.headers ?? {}) } : init?.headers,
   });
@@ -194,12 +195,14 @@ function Brand({ admin = false, tournament, copy, preview = false, imageUrl }: {
   const content = pageHeaderCopy(tournament, copy);
   const savedImage = tournament?.logoKey ? `/api/events/${encodeURIComponent(tournament.id)}/logo/${encodeURIComponent(tournament.logoKey)}` : "";
   const src = imageUrl === undefined ? savedImage : imageUrl;
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const Container = preview ? "div" : "a";
   return (
     <Container className="brand" href={preview ? undefined : admin ? "/admin" : "/"} aria-label={preview ? undefined : "참가 신청 처음으로"}>
-      {src && src !== failedSrc
-        ? <img className="brand-image" src={src} alt="" width={48} height={48} onError={() => setFailedSrc(src)} />
+      {/* A new source gets a new DOM image. Until it loads (or if it fails),
+          keep its reserved space empty instead of showing the previous logo. */}
+      {src
+        ? <img key={src} className="brand-image" src={src} alt="" width={48} height={48} style={{ visibility: loadedSrc === src ? "visible" : "hidden" }} onLoad={() => setLoadedSrc(src)} onError={() => setLoadedSrc(null)} />
         : <span className="brand-mark" data-length={[...content.logoText.normalize("NFC")].length} aria-hidden="true">{content.logoText}</span>}
       <span><SentenceFlow text={content.brandName} />{content.brandSubtitle && <b><SentenceFlow text={content.brandSubtitle} /></b>}</span>
     </Container>
@@ -216,7 +219,7 @@ function ApplicationIntro({ tournament, copy, preview = false }: { tournament: T
 }
 
 function PageLoader({ message = "참가 신청 정보를 불러오고 있습니다." }: { message?: string }) {
-  return <main className="center-state"><span className="loading-ring" /><b><SentenceFlow text={message} /></b><small>잠시만 기다려 주세요.</small></main>;
+  return <main className="center-state" role="status" aria-busy="true"><span className="loading-ring" aria-hidden="true" /><b><SentenceFlow text={message} /></b><small>잠시만 기다려 주세요.</small></main>;
 }
 
 function UiIcon({ name }: { name: "school" | "calendar" | "search" | "lock" | "arrow" | "check" }) {
@@ -260,6 +263,22 @@ export function SurveyApp({ initialView = "school" }: { initialView?: "school" |
   const [switchingSurvey, setSwitchingSurvey] = useState(false);
   const [surveyChoiceError, setSurveyChoiceError] = useState("");
   const choiceSequence = useRef(0);
+
+  // Bootstrap may refer to a different event than the authenticated session.
+  // Do not publish any event's title until the destination view is resolved.
+  const visibleTournament = phase === "admin" ? dashboard?.selectedEvent
+    : phase === "survey" ? schoolSession?.tournament
+      : phase === "login" || phase === "admin-login" ? bootstrap?.tournament : null;
+  useEffect(() => {
+    const neutralTitle = initialView === "admin" ? "관리자 · 참가 신청" : "참가 신청";
+    if (!visibleTournament || fatalError) {
+      document.title = neutralTitle;
+      return;
+    }
+    const copy = pageHeaderCopy(visibleTournament);
+    const title = [copy.titlePrimary, copy.titleSecondary].filter(Boolean).join(" ").replace(/\s+/gu, " ").trim();
+    document.title = initialView === "admin" ? `관리자 · ${title}` : title;
+  }, [visibleTournament, initialView, fatalError]);
 
   useEffect(() => {
     let mounted = true;
