@@ -67,12 +67,12 @@ test("ordinary canvas PNGs continue to pass for every supported 8-bit channel fo
   await assert.doesNotReject(validateLogoPng(png({ width: MAX_LOGO_EDGE, height: MAX_LOGO_EDGE })));
 });
 
-test("real Safari canvas PNG saves after metadata cleaning without changing pixels or colors", async () => {
+test("raw Safari canvas PNG from older clients is cleaned server-side without changing pixels or colors", async () => {
   assert.deepEqual(chunks(SAFARI_CANVAS_PNG).map((item) => item.type), ["IHDR", "sRGB", "eXIf", "IDAT", "IEND"]);
-  await assert.rejects(validateLogoPng(SAFARI_CANVAS_PNG), INVALID, "regression: the browser output used to be rejected at save time");
   const before = Buffer.from(SAFARI_CANVAS_PNG);
-  const cleaned = cleanCanvasPngBytes(SAFARI_CANVAS_PNG);
+  const cleaned = await validateLogoPng(SAFARI_CANVAS_PNG);
   assert.deepEqual(SAFARI_CANVAS_PNG, before, "the cleaner does not modify the original bytes");
+  assert.deepEqual(cleaned, cleanCanvasPngBytes(SAFARI_CANVAS_PNG), "old and updated browser uploads normalize to identical bytes");
   assert.deepEqual(Buffer.from(cleaned), Buffer.concat([SIGNATURE, ...chunks(SAFARI_CANVAS_PNG).filter((item) => item.type !== "eXIf").map((item) => item.bytes)]));
   assert.deepEqual(chunks(cleaned).map((item) => item.type), ["IHDR", "sRGB", "IDAT", "IEND"]);
   await assert.doesNotReject(validateLogoPng(cleaned));
@@ -88,10 +88,19 @@ test("cleaning preserves already compatible PNGs and does not launder broken or 
   const brokenLength = Buffer.from(SAFARI_CANVAS_PNG); brokenLength.writeUInt32BE(0xffffffff, 46);
   for (const bytes of [null, [], Buffer.alloc(0), Buffer.from("not a PNG"), SAFARI_CANVAS_PNG.subarray(0, 70), Buffer.concat([SAFARI_CANVAS_PNG, Buffer.from("junk")]), corruptExif, brokenLength]) {
     assert.throws(() => cleanCanvasPngBytes(bytes), /사진 변환에 실패했습니다/);
+    await assert.rejects(validateLogoPng(bytes), INVALID);
   }
   const unknown = png({ before: [chunk("tEXt", Buffer.from("note\0untrusted metadata"))] });
   const corruptPixels = png(); corruptPixels[41] ^= 1;
-  for (const bytes of [unknown, corruptPixels]) await assert.rejects(validateLogoPng(cleanCanvasPngBytes(bytes)), INVALID);
+  for (const bytes of [unknown, corruptPixels]) {
+    await assert.rejects(validateLogoPng(cleanCanvasPngBytes(bytes)), INVALID);
+    await assert.rejects(validateLogoPng(bytes), INVALID);
+  }
+  // A large metadata block must not bypass the original request byte limit,
+  // even though stripping it would produce a tiny otherwise-valid PNG.
+  const oversized = png({ before: [chunk("eXIf", Buffer.alloc(MAX_LOGO_BYTES))] });
+  assert(cleanCanvasPngBytes(oversized).length < 100);
+  await assert.rejects(validateLogoPng(oversized), INVALID);
 });
 
 test("a bounded RGB ICC color profile is accepted instead of rejected as a file-type error", async () => {
@@ -141,8 +150,9 @@ test("small compressed profiles cannot inflate beyond the independent 256 KiB ca
 test("duplicate, misplaced, malformed and unrelated metadata is still rejected", async () => {
   await assert.rejects(validateLogoPng(png({ before: [colorChunk(), colorChunk()] })), INVALID);
   await assert.rejects(validateLogoPng(png({ after: [colorChunk()] })), INVALID);
-  for (const extra of [chunk("tEXt", Buffer.from("note\0<script>alert(1)</script>")), chunk("eXIf", Buffer.alloc(8)), chunk("acTL", Buffer.alloc(8)), chunk("sRGB", Buffer.alloc(2)), chunk("sRGB", Buffer.from([4])), chunk("gAMA", Buffer.alloc(4)), chunk("pHYs", Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 2]))]) {
+  for (const extra of [chunk("tEXt", Buffer.from("note\0<script>alert(1)</script>")), chunk("acTL", Buffer.alloc(8)), chunk("sRGB", Buffer.alloc(2)), chunk("sRGB", Buffer.from([4])), chunk("gAMA", Buffer.alloc(4)), chunk("pHYs", Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 2]))]) {
     await assert.rejects(validateLogoPng(png({ before: [extra] })), INVALID);
+    await assert.rejects(validateLogoPng(png({ before: [chunk("eXIf", Buffer.alloc(8)), extra] })), INVALID);
   }
 });
 

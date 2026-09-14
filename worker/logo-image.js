@@ -1,3 +1,5 @@
+import { cleanCanvasPngBytes } from "../app/logo-png.js";
+
 export const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 export const MAX_LOGO_EDGE = 512;
 const MAX_COLOR_PROFILE_BYTES = 256 * 1024;
@@ -47,9 +49,14 @@ async function validateColorProfile(data, colorType, invalid) {
 // Only a bounded, structurally valid PNG is served. The browser converts the
 // selected raster to PNG first; SVG, HTML and original photo metadata are not stored.
 // Standard canvas-generated color profiles are retained to preserve logo colors.
+// Return the validated, cleaned bytes so older clients can send Safari's eXIf
+// chunk, but that non-pixel metadata is never stored or served.
 export async function validateLogoPng(bytes) {
   const invalid = () => { throw new Error("올바른 로고 이미지가 아닙니다. PNG·JPG·WebP 사진을 다시 선택해 주세요."); };
   if (!(bytes instanceof Uint8Array) || bytes.length < 57 || bytes.length > MAX_LOGO_BYTES) invalid();
+  // Enforce the raw byte cap before cleaning; validate the removed chunk's CRC
+  // as well as all retained image/color data. Do not silently repair corruption.
+  try { bytes = cleanCanvasPngBytes(bytes); } catch { invalid(); }
   const signature = [137, 80, 78, 71, 13, 10, 26, 10];
   if (signature.some((byte, index) => bytes[index] !== byte)) invalid();
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -117,6 +124,7 @@ export async function validateLogoPng(bytes) {
     if (inflatedBytes !== expectedBytes) invalid();
   } catch { await reader.cancel().catch(() => {}); invalid(); }
   finally { reader.releaseLock(); }
+  return bytes;
 }
 
 export function logoObjectKey(eventId, version) {

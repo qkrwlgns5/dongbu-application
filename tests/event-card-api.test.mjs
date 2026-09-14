@@ -156,6 +156,48 @@ test("logo images are admin-only, validated, versioned, and survive other settin
   } finally { sqlite.close(); }
 });
 
+test("older Safari clients can upload raw canvas PNGs and only cleaned image bytes are stored", async () => {
+  const { sqlite, call, cookie, env } = await fixture();
+  try {
+    // Synthetic 8×8 Safari canvas output, including its automatically-added eXIf.
+    const raw = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAACKADAAQAAAABAAAACAAAAACVhHtSAAAALElEQVQYGWPUO7LtPwMSOLhuCRKPgYEJhYeFQ7kCxiib2w1YTIYLUW4FQRMAtrMGujNhN8QAAAAASUVORK5CYII=", "base64");
+    const before = (await call("bootstrap")).data.tournament;
+    const path = `admin/events/${before.id}/logo`;
+    const school = await call("school/login", { method: "POST", body: { schoolId: "test-school", password: "ehdek99" } });
+    assert.equal((await call("school/survey", { method: "PUT", cookie: school.cookie, body: { tournamentId: before.id, schoolId: school.data.school.id, revision: 0, noParticipation: false, selections: [{ divisionId: "division-basketball-male", teamCount: 1 }] } })).status, 200);
+    const survey = (await call("school/session", { cookie: school.cookie })).data.survey;
+    const schools = sqlite.prepare("SELECT * FROM schools ORDER BY id").all();
+    const chunks = [];
+    const types = [];
+    for (let offset = 8; offset + 12 <= raw.length;) {
+      const length = raw.readUInt32BE(offset);
+      const type = raw.subarray(offset + 4, offset + 8).toString();
+      types.push(type);
+      if (type !== "eXIf") chunks.push(raw.subarray(offset, offset + length + 12));
+      offset += length + 12;
+    }
+    assert.deepEqual(types, ["IHDR", "sRGB", "eXIf", "IDAT", "IEND"]);
+    const expected = Buffer.concat([raw.subarray(0, 8), ...chunks]);
+    const options = { method: "PUT", rawBody: raw, contentType: "image/png", cookie };
+    const saved = await call(path, options);
+    assert.equal(saved.status, 200);
+    const image = await call(`events/${before.id}/logo/${saved.data.logoKey}`);
+    assert.equal(image.status, 200);
+    assert.deepEqual(image.data, expected, "pixels, alpha and color profile bytes must remain identical");
+    assert.deepEqual(Buffer.from([...env.LOGO_FILES.objects.values()][0]), expected, "R2 stores sanitized bytes, not the original upload");
+    assert.equal(Number(image.headers.get("content-length")), expected.length);
+    const after = (await call("bootstrap")).data.tournament;
+    assert.deepEqual({ ...after, logoKey: before.logoKey }, before);
+    assert.deepEqual((await call("school/session", { cookie: school.cookie })).data.survey, survey);
+    assert.deepEqual(sqlite.prepare("SELECT * FROM schools ORDER BY id").all(), schools);
+
+    const corrupt = Buffer.from(raw); corrupt[60] ^= 1;
+    assert.equal((await call(path, { ...options, rawBody: corrupt })).status, 400, "bad CRC in removed metadata still fails");
+    assert.equal(env.LOGO_FILES.writes, 1);
+    assert.equal((await call("bootstrap")).data.tournament.logoKey, saved.data.logoKey, "failed upload retains the saved logo");
+  } finally { sqlite.close(); }
+});
+
 test("draft logos stay private and failed storage or database writes preserve the last logo", async () => {
   const { sqlite, call, cookie, start, end, env } = await fixture();
   try {

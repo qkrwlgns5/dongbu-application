@@ -1194,8 +1194,7 @@ async function readLogoUpload(request: Request): Promise<Uint8Array<ArrayBuffer>
   const bytes = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  try { await validateLogoPng(bytes); } catch (error) { throw apiError(error instanceof Error ? error.message : "로고 이미지를 확인해 주세요."); }
-  return bytes;
+  try { return await validateLogoPng(bytes); } catch (error) { throw apiError(error instanceof Error ? error.message : "로고 이미지를 확인해 주세요."); }
 }
 
 async function updateLogoImage(request: Request, env: Env, eventId: string): Promise<Response> {
