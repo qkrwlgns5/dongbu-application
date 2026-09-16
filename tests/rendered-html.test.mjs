@@ -580,3 +580,29 @@ test("teacher survey selection and school-level response tabs preserve context a
   assert.match(original, /tournamentId: session.tournament.id,\s*schoolId: session.school.id,/);
   assert.match(original, /다른 대회 선택/); assert.match(original, /공개 대회 목록으로 돌아가기/);
 });
+
+test("school-level tabs share the heading row without losing selection or panel accessibility", async () => {
+  const { AdminPanel, tournament, renderComponent } = await brandingFixture();
+  const rows = Array.from({ length: 42 }, (_, i) => ({
+    school: { id: `school-${i}`, name: `검증중학교${i}`, displayOrder: i + 1, schoolLevel: "middle" },
+    submitted: i < 29, noParticipation: false, revision: 1, updatedAt: null, selections: [],
+  }));
+  const html = renderComponent(AdminPanel, {
+    dashboard: { adminUsername: "layout-test", selectedEvent: tournament, events: [tournament], sports: [], rows },
+    async refresh() {},
+  });
+  const panel = html.slice(html.indexOf('<section class="results-panel">'));
+  const header = panel.slice(0, panel.indexOf("</header>") + "</header>".length);
+  assert.match(header, /class="results-heading-group"><div class="results-heading-copy"><p>ALL SCHOOLS<\/p><h2>/);
+  assert.match(header, /<\/h2><\/div><div class="results-school-tabs" role="tablist"/);
+  assert.match(header, /초등<b>0개교<\/b>/);
+  assert.match(header, /중등<b>42개교<\/b>/);
+  assert.match(header, /id="response-tab-elementary"[^>]*aria-selected="false"[^>]*disabled=""/);
+  assert.match(header, /id="response-tab-middle"[^>]*aria-selected="true"[^>]*tabindex="0"/);
+  assert.equal((panel.match(/class="results-school-tabs"/g) ?? []).length, 1);
+  assert.match(panel, /role="tabpanel" id="response-level-panel" aria-labelledby="response-tab-middle"/);
+  const css = await readFile(new URL("app/survey-selection.css", root), "utf8");
+  assert.match(css, /\.results-panel \.results-heading-group \{[^}]*align-items: center/);
+  assert.match(css, /\.results-panel \.results-school-tabs \{[^}]*padding: 0/);
+  assert.match(css, /\.results-panel \.results-filter-bar \{ padding-top: 18px/);
+});
